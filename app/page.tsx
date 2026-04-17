@@ -1,13 +1,15 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/app-sidebar"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { UploadPanel } from "@/components/upload-panel"
 import { AnalysisPanel, AnalysisResult } from "@/components/analysis-panel"
-import { CheckCircle2 } from "lucide-react"
+import { CheckCircle2, Loader2 } from "lucide-react"
+import { supabase } from "@/lib/supabase"
 
 // Mock analysis result for demo
 const mockAnalysisResult: AnalysisResult = {
@@ -107,9 +109,37 @@ XYZ互联网公司 | 前端工程师 | 2019-2021
 }
 
 export default function DashboardPage() {
+  const router = useRouter()
+  const [authReady, setAuthReady] = useState(false)
   const [credits] = useState(5)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+
+    const checkSession = async () => {
+      const {
+        data: { session },
+        error,
+      } = await supabase.auth.getSession()
+
+      if (cancelled) return
+
+      if (error || !session) {
+        router.push("/login")
+        return
+      }
+
+      setAuthReady(true)
+    }
+
+    void checkSession()
+
+    return () => {
+      cancelled = true
+    }
+  }, [router])
 
   const handleAnalyze = async (resumeFile: File | null, jobDescription: string) => {
     if (!resumeFile || !jobDescription) return
@@ -127,6 +157,18 @@ export default function DashboardPage() {
       icon: <CheckCircle2 className="h-4 w-4 text-emerald-500" />,
       duration: 5000,
     })
+  }
+
+  if (!authReady) {
+    return (
+      <div
+        className="flex min-h-screen items-center justify-center bg-background"
+        role="status"
+        aria-label="正在验证登录状态"
+      >
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" aria-hidden />
+      </div>
+    )
   }
 
   return (
