@@ -11,107 +11,9 @@ import { AnalysisPanel, AnalysisResult } from "@/components/analysis-panel"
 import { CheckCircle2, Loader2 } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 
-// Mock analysis result for demo
-const mockAnalysisResult: AnalysisResult = {
-  matchScore: 78,
-  strengths: [
-    "丰富的前端开发经验",
-    "熟练掌握 React 生态系统",
-    "良好的项目管理能力",
-  ],
-  weaknesses: [
-    "缺少云服务相关经验描述",
-    "未突出团队协作成果",
-    "技能描述过于笼统",
-  ],
-  missingKeywords: [
-    "TypeScript",
-    "CI/CD",
-    "敏捷开发",
-    "性能优化",
-    "微前端",
-    "单元测试",
-    "AWS",
-    "Docker",
-  ],
-  suggestions: [
-    {
-      category: "技能部分",
-      items: [
-        "添加 TypeScript 相关技能和项目经验",
-        "补充 CI/CD 流程实践经验",
-        "突出性能优化的具体案例和数据",
-      ],
-    },
-    {
-      category: "工作经历",
-      items: [
-        "量化项目成果，使用具体数据说明",
-        "强调团队协作和领导力表现",
-        "补充敏捷开发实践经验",
-      ],
-    },
-    {
-      category: "项目经验",
-      items: [
-        "增加技术挑战和解决方案的描述",
-        "添加测试相关的实践经验",
-        "描述云服务和容器化部署经验",
-      ],
-    },
-  ],
-  originalContent: `张明
-高级前端工程师 | 5年经验
-
-联系方式
-邮箱：zhang.ming@example.com
-电话：138-0000-0000
-
-工作经历
-ABC科技公司 | 高级前端工程师 | 2021-至今
-- 负责公司核心产品的前端开发
-- 参与技术选型和架构设计
-- 指导初级开发人员
-
-XYZ互联网公司 | 前端工程师 | 2019-2021
-- 开发和维护公司网站
-- 实现产品需求功能
-- 修复线上问题
-
-技能
-- HTML/CSS/JavaScript
-- React
-- Vue.js
-- Git`,
-  optimizedContent: `张明
-高级前端工程师 | 5年经验 | React & TypeScript 专家
-
-联系方式
-邮箱：zhang.ming@example.com | 电话：138-0000-0000 | GitHub：github.com/zhangming
-
-工作经历
-ABC科技公司 | 高级前端工程师 | 2021-至今
-- 主导公司核心产品前端架构重构，采用 React + TypeScript + 微前端方案，提升开发效率 40%
-- 建立完善的 CI/CD 流程和自动化测试体系，代码覆盖率从 20% 提升至 85%
-- 实施性能优化方案，首屏加载时间从 4.5s 降低至 1.2s，用户留存率提升 25%
-- 带领 5 人前端团队，采用敏捷开发模式，按时交付 15+ 个关键项目
-
-XYZ互联网公司 | 前端工程师 | 2019-2021
-- 负责电商平台前端开发，日均 PV 超 100 万
-- 使用 React + Redux 重构老旧 jQuery 项目，性能提升 60%
-- 编写单元测试和 E2E 测试，bug 率降低 70%
-
-技能
-- 核心技术：React, TypeScript, Next.js, Vue.js, Node.js
-- 工程化：Webpack, Vite, CI/CD, Docker, AWS
-- 测试：Jest, Cypress, Testing Library
-- 方法论：敏捷开发, 代码审查, 性能优化`,
-}
-
 export default function DashboardPage() {
   const router = useRouter()
   const [authReady, setAuthReady] = useState(false)
-  const [credits] = useState(5)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null)
 
@@ -141,22 +43,109 @@ export default function DashboardPage() {
     }
   }, [router])
 
-  const handleAnalyze = async (resumeFile: File | null, jobDescription: string) => {
-    if (!resumeFile || !jobDescription) return
-
+  const handleAnalyze = async (payload: { resumeId: string; jdText: string }) => {
     setIsAnalyzing(true)
-    
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 3000))
-    
-    setAnalysisResult(mockAnalysisResult)
-    setIsAnalyzing(false)
 
-    toast.success("简历优化成功！", {
-      description: "您的简历匹配度为 78%，点击查看详细建议",
-      icon: <CheckCircle2 className="h-4 w-4 text-emerald-500" />,
-      duration: 5000,
-    })
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+
+      let token = session?.access_token
+      if (!token) {
+        const {
+          data: { session: refreshedSession },
+        } = await supabase.auth.refreshSession()
+        token = refreshedSession?.access_token
+      }
+
+      if (!token) {
+        toast.error("请先登录")
+        router.push("/login")
+        return
+      }
+
+      const response = await fetch("/api/optimize", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          resumeId: payload.resumeId,
+          jdText: payload.jdText,
+        }),
+      })
+
+      const data = (await response.json()) as {
+        error?: string
+        match_score?: number
+        score?: number
+        strengths?: string[]
+        weaknesses?: string[]
+        missing_keywords?: string[]
+        original_content?: string
+        optimized_content?: string
+        revised_summary?: string
+        suggestions?: string[]
+        top_3_suggestions?: string[]
+      }
+      console.log("optimize api raw response:", data)
+
+      if (!response.ok) {
+        if (data.error?.includes("余额不足")) {
+          toast.error("余额不足", {
+            description: "当前积分不足，请先充值后再分析",
+          })
+          return
+        }
+        throw new Error(data.error || "分析失败，请稍后重试")
+      }
+
+      const strengths = Array.isArray(data.strengths)
+        ? data.strengths.filter(Boolean).slice(0, 5)
+        : []
+      const weaknesses = Array.isArray(data.weaknesses)
+        ? data.weaknesses.filter(Boolean).slice(0, 5)
+        : []
+      const missingKeywords = Array.isArray(data.missing_keywords)
+        ? data.missing_keywords.filter(Boolean)
+        : []
+      const suggestions = Array.isArray(data.suggestions)
+        ? data.suggestions.filter(Boolean)
+        : Array.isArray(data.top_3_suggestions)
+          ? data.top_3_suggestions.filter(Boolean)
+          : []
+      const originalContent = data.original_content || ""
+      const optimizedContent = data.optimized_content || data.revised_summary || ""
+      const score = Number(data.match_score ?? data.score ?? 0)
+
+      setAnalysisResult({
+        matchScore: Number.isFinite(score) ? score : 0,
+        strengths: strengths.length >= 3 ? strengths : suggestions.slice(0, 5),
+        weaknesses: weaknesses.length >= 3 ? weaknesses : suggestions.slice(0, 5),
+        missingKeywords,
+        suggestions: [
+          {
+            category: "核心优化建议",
+            items: suggestions,
+          },
+        ],
+        originalContent: originalContent || payload.jdText,
+        optimizedContent,
+      })
+
+      toast.success("简历优化成功！", {
+        description: `您的简历匹配度为 ${Math.round(score)}%`,
+        icon: <CheckCircle2 className="h-4 w-4 text-emerald-500" />,
+        duration: 5000,
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "分析失败，请稍后重试"
+      toast.error("分析失败", { description: message })
+    } finally {
+      setIsAnalyzing(false)
+    }
   }
 
   if (!authReady) {
@@ -175,7 +164,7 @@ export default function DashboardPage() {
     <SidebarProvider defaultOpen={true}>
       <AppSidebar />
       <SidebarInset className="flex flex-col">
-        <DashboardHeader credits={credits} />
+        <DashboardHeader />
         <main className="flex-1 overflow-hidden p-4">
           <div className="grid h-full gap-4 lg:grid-cols-2">
             {/* Left Panel - Upload & Input */}

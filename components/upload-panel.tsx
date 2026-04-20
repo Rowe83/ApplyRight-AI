@@ -11,7 +11,7 @@ import { supabase } from "@/lib/supabase"
 import { extractPdfTextFromFile } from "@/lib/extract-pdf-text"
 
 interface UploadPanelProps {
-  onAnalyze: (resumeFile: File | null, jobDescription: string) => void
+  onAnalyze: (payload: { resumeId: string; jdText: string }) => void
   isAnalyzing: boolean
 }
 
@@ -114,15 +114,21 @@ export function UploadPanel({ onAnalyze, isAnalyzing }: UploadPanelProps) {
 
       const { data: publicUrlData } = supabase.storage.from("resumes").getPublicUrl(filePath)
       const rawText = await extractPdfTextFromFile(resumeFile)
+      const cleanedText = rawText.replace(/\\n/g, "\n")
+      console.log("Raw text to be stored:", JSON.stringify(cleanedText))
 
-      const { error: insertError } = await supabase.from("resumes").insert({
-        user_id: user.id,
-        file_url: publicUrlData.publicUrl,
-        raw_text: rawText,
-        original_filename: resumeFile.name.slice(0, 2048),
-      })
+      const { data: insertedResume, error: insertError } = await supabase
+        .from("resumes")
+        .insert({
+          user_id: user.id,
+          file_url: publicUrlData.publicUrl,
+          raw_text: cleanedText,
+          original_filename: resumeFile.name.slice(0, 2048),
+        })
+        .select("id")
+        .single<{ id: string }>()
 
-      if (insertError) {
+      if (insertError || !insertedResume) {
         throw insertError
       }
 
@@ -130,7 +136,7 @@ export function UploadPanel({ onAnalyze, isAnalyzing }: UploadPanelProps) {
         description: `已完成 PDF 解析并写入 resumes 表，JD ID: ${insertedJd.id}`,
       })
 
-      onAnalyze(resumeFile, jobDescription)
+      onAnalyze({ resumeId: insertedResume.id, jdText: jobDescription })
     } catch (error) {
       let message =
         error instanceof Error ? error.message : "上传失败，请稍后重试"

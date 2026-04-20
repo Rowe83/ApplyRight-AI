@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -11,13 +12,16 @@ import {
 } from "@/components/ui/accordion"
 import { MatchScoreGauge } from "@/components/match-score-gauge"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import ReactMarkdown from "react-markdown"
 import { 
   TrendingUp, 
   TrendingDown, 
   AlertCircle, 
   Lightbulb, 
   FileText,
-  CheckCircle2
+  CheckCircle2,
+  Copy,
+  Check
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -40,6 +44,24 @@ interface AnalysisPanelProps {
 }
 
 export function AnalysisPanel({ result, isAnalyzing }: AnalysisPanelProps) {
+  const [copied, setCopied] = useState(false)
+  const displayBody = result
+    ? typeof (result.originalContent as unknown) === "string"
+      ? result.originalContent.replace(/\\n/g, "\n")
+      : JSON.stringify(result.originalContent, null, 2)
+    : ""
+
+  const handleCopyOriginal = async () => {
+    if (!result?.originalContent) return
+    try {
+      await navigator.clipboard.writeText(result.originalContent)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1200)
+    } catch {
+      setCopied(false)
+    }
+  }
+
   if (isAnalyzing) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4">
@@ -166,13 +188,17 @@ export function AnalysisPanel({ result, isAnalyzing }: AnalysisPanelProps) {
                     {result.suggestions.map((suggestion, index) => (
                       <div key={index} className="space-y-2">
                         <h4 className="text-sm font-medium">{suggestion.category}</h4>
-                        <ul className="space-y-1 pl-4">
+                        <ul className="space-y-2">
                           {suggestion.items.map((item, itemIndex) => (
                             <li 
                               key={itemIndex} 
-                              className="text-sm text-muted-foreground list-disc"
+                              className={cn(
+                                "flex items-start gap-2 rounded-md bg-blue-50/50 p-2 text-sm text-muted-foreground",
+                                itemIndex === 0 && "border-l-4 border-blue-500"
+                              )}
                             >
-                              {item}
+                              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-blue-500" />
+                              <span>{item}</span>
                             </li>
                           ))}
                         </ul>
@@ -198,17 +224,25 @@ export function AnalysisPanel({ result, isAnalyzing }: AnalysisPanelProps) {
                 <TabsTrigger value="optimized">优化版本</TabsTrigger>
               </TabsList>
               <TabsContent value="original" className="mt-4">
-                <div className="min-h-[200px] rounded-lg border border-border bg-muted/30 p-4">
-                  <pre className="whitespace-pre-wrap font-sans text-sm text-muted-foreground">
-                    {result.originalContent}
+                <div className="relative min-h-[200px] rounded-lg border border-border bg-muted/30 p-4">
+                  <button
+                    type="button"
+                    onClick={handleCopyOriginal}
+                    className="absolute right-3 top-3 inline-flex h-7 w-7 items-center justify-center rounded-md border border-border/70 bg-background/80 text-muted-foreground transition-colors hover:text-foreground"
+                    aria-label="复制全文"
+                  >
+                    {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                  </button>
+                  <pre className="max-h-[500px] overflow-y-auto scrollbar-thin whitespace-pre-wrap break-words font-sans text-sm text-muted-foreground pr-2">
+                    {displayBody}
                   </pre>
                 </div>
               </TabsContent>
               <TabsContent value="optimized" className="mt-4">
                 <div className="min-h-[200px] rounded-lg border border-primary/30 bg-primary/5 p-4">
-                  <pre className="whitespace-pre-wrap font-sans text-sm">
-                    {result.optimizedContent}
-                  </pre>
+                  <div className="prose prose-sm max-w-none whitespace-pre-wrap text-sm dark:prose-invert">
+                    <ReactMarkdown>{result.optimizedContent}</ReactMarkdown>
+                  </div>
                 </div>
               </TabsContent>
             </Tabs>

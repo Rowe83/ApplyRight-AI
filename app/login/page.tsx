@@ -15,12 +15,14 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { ArrowLeft, AtSign, Lock, UserRound } from "lucide-react"
 
 type AuthMode = "signin" | "signup"
 
 export default function LoginPage() {
   const router = useRouter()
   const [mode, setMode] = useState<AuthMode>("signin")
+  const [username, setUsername] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -28,8 +30,9 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     const trimmedEmail = email.trim()
-    if (!trimmedEmail || !password) {
-      toast.error("请填写邮箱和密码")
+    const trimmedUsername = username.trim()
+    if (!trimmedEmail || !password || (mode === "signup" && !trimmedUsername)) {
+      toast.error(mode === "signup" ? "请填写用户名、邮箱和密码" : "请填写邮箱和密码")
       return
     }
 
@@ -51,6 +54,11 @@ export default function LoginPage() {
       const { data, error } = await supabase.auth.signUp({
         email: trimmedEmail,
         password,
+        options: {
+          data: {
+            full_name: trimmedUsername,
+          },
+        },
       })
       if (error) throw error
 
@@ -87,7 +95,10 @@ export default function LoginPage() {
             href="/"
             className="text-sm text-muted-foreground transition-colors hover:text-foreground"
           >
-            ← ApplyRight AI
+            <span className="inline-flex items-center gap-1">
+              <ArrowLeft className="h-3.5 w-3.5" />
+              ApplyRight AI
+            </span>
           </Link>
           <h1 className="mt-4 text-2xl font-semibold tracking-tight text-foreground">
             {mode === "signin" ? "欢迎回来" : "创建账号"}
@@ -111,76 +122,71 @@ export default function LoginPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6 pt-0">
-            <div
-              className="flex rounded-lg border border-border/80 bg-muted/30 p-0.5"
-              role="tablist"
-              aria-label="登录或注册"
-            >
-              <button
-                type="button"
-                role="tab"
-                aria-selected={mode === "signin"}
-                className={
-                  mode === "signin"
-                    ? "flex-1 rounded-md bg-background py-2 text-sm font-medium text-foreground shadow-sm ring-1 ring-border/50 transition-all"
-                    : "flex-1 rounded-md py-2 text-sm text-muted-foreground transition-all hover:text-foreground"
-                }
-                onClick={() => setMode("signin")}
-              >
-                登录
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={mode === "signup"}
-                className={
-                  mode === "signup"
-                    ? "flex-1 rounded-md bg-background py-2 text-sm font-medium text-foreground shadow-sm ring-1 ring-border/50 transition-all"
-                    : "flex-1 rounded-md py-2 text-sm text-muted-foreground transition-all hover:text-foreground"
-                }
-                onClick={() => setMode("signup")}
-              >
-                注册
-              </button>
-            </div>
-
             <form className="space-y-4" onSubmit={handleSubmit}>
+              {mode === "signup" && (
+                <div className="space-y-2">
+                  <Label htmlFor="signup-username" className="text-xs font-medium">
+                    用户名
+                  </Label>
+                  <div className="relative">
+                    <UserRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      id="signup-username"
+                      name="username"
+                      type="text"
+                      autoComplete="nickname"
+                      placeholder="输入你的用户名"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      className="h-10 bg-background/50 pl-9"
+                      disabled={isSubmitting}
+                      required
+                    />
+                  </div>
+                </div>
+              )}
               <div className="space-y-2">
                 <Label htmlFor="login-email" className="text-xs font-medium">
                   邮箱
                 </Label>
-                <Input
-                  id="login-email"
-                  name="email"
-                  type="email"
-                  autoComplete="email"
-                  placeholder="you@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="h-10 bg-background/50"
-                  disabled={isSubmitting}
-                  required
-                />
+                <div className="relative">
+                  <AtSign className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    id="login-email"
+                    name="email"
+                    type="email"
+                    autoComplete="email"
+                    placeholder="you@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="h-10 bg-background/50 pl-9"
+                    disabled={isSubmitting}
+                    required
+                  />
+                </div>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="login-password" className="text-xs font-medium">
                   密码
                 </Label>
-                <Input
-                  id="login-password"
-                  name="password"
-                  type="password"
-                  autoComplete={
-                    mode === "signin" ? "current-password" : "new-password"
-                  }
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="h-10 bg-background/50"
-                  disabled={isSubmitting}
-                  required
-                  minLength={6}
-                />
+                <div className="relative">
+                  <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    id="login-password"
+                    name="password"
+                    type="password"
+                    autoComplete={
+                      mode === "signin" ? "current-password" : "new-password"
+                    }
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="h-10 bg-background/50 pl-9"
+                    disabled={isSubmitting}
+                    required
+                    minLength={6}
+                  />
+                </div>
               </div>
               <Button
                 type="submit"
@@ -194,6 +200,16 @@ export default function LoginPage() {
                     : "注册"}
               </Button>
             </form>
+            <p className="text-center text-xs text-muted-foreground">
+              {mode === "signin" ? "还没有账号？" : "已经有账号？"}
+              <button
+                type="button"
+                onClick={() => setMode(mode === "signin" ? "signup" : "signin")}
+                className="ml-1 font-medium text-primary transition-colors hover:text-primary/80"
+              >
+                {mode === "signin" ? "立即注册" : "去登录"}
+              </button>
+            </p>
           </CardContent>
         </Card>
 
