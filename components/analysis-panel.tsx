@@ -12,12 +12,13 @@ import {
 } from "@/components/ui/accordion"
 import { MatchScoreGauge } from "@/components/match-score-gauge"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { ResumeDiffView } from "@/components/resume-diff-view"
 import ReactMarkdown from "react-markdown"
-import { 
-  TrendingUp, 
-  TrendingDown, 
-  AlertCircle, 
-  Lightbulb, 
+import {
+  TrendingUp,
+  TrendingDown,
+  AlertCircle,
+  Lightbulb,
   FileText,
   CheckCircle2,
   Copy,
@@ -96,9 +97,9 @@ export function AnalysisPanel({ result, isAnalyzing }: AnalysisPanelProps) {
 
   return (
     <ScrollArea className="h-full">
-      <div className="flex flex-col gap-4 pr-4">
+      <div className="flex flex-col gap-6 pr-4">
         {/* Score and Summary Section */}
-        <div className="grid gap-4 lg:grid-cols-[auto_1fr]">
+        <div className="grid gap-6 lg:grid-cols-[auto_1fr]">
           <Card className="border-border bg-card">
             <CardContent className="flex items-center justify-center p-6">
               <MatchScoreGauge score={result.matchScore} />
@@ -109,13 +110,13 @@ export function AnalysisPanel({ result, isAnalyzing }: AnalysisPanelProps) {
             <CardHeader className="pb-3">
               <CardTitle className="text-base">快速摘要</CardTitle>
             </CardHeader>
-            <CardContent className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
+            <CardContent className="grid gap-6 md:grid-cols-2">
+              <div className="space-y-3">
                 <div className="flex items-center gap-2 text-sm font-medium text-emerald-500">
                   <TrendingUp className="h-4 w-4" />
                   <span>优势亮点</span>
                 </div>
-                <ul className="space-y-1">
+                <ul className="space-y-2">
                   {result.strengths.map((strength, index) => (
                     <li key={index} className="flex items-start gap-2 text-sm">
                       <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" />
@@ -124,12 +125,12 @@ export function AnalysisPanel({ result, isAnalyzing }: AnalysisPanelProps) {
                   ))}
                 </ul>
               </div>
-              <div className="space-y-2">
+              <div className="space-y-3">
                 <div className="flex items-center gap-2 text-sm font-medium text-amber-500">
                   <TrendingDown className="h-4 w-4" />
                   <span>待改进项</span>
                 </div>
-                <ul className="space-y-1">
+                <ul className="space-y-2">
                   {result.weaknesses.map((weakness, index) => (
                     <li key={index} className="flex items-start gap-2 text-sm">
                       <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
@@ -216,11 +217,20 @@ export function AnalysisPanel({ result, isAnalyzing }: AnalysisPanelProps) {
             <CardDescription>查看原始简历与优化后的对比</CardDescription>
           </CardHeader>
           <CardContent>
-            <Tabs defaultValue="optimized" className="w-full">
-              <TabsList className="grid w-full grid-cols-2">
+            <Tabs defaultValue="diff" className="w-full">
+              <TabsList className="grid w-full grid-cols-3">
+                <TabsTrigger value="diff">🔍 细粒度对比</TabsTrigger>
                 <TabsTrigger value="original">原始版本</TabsTrigger>
                 <TabsTrigger value="optimized">优化版本</TabsTrigger>
               </TabsList>
+              <TabsContent value="diff" className="mt-4">
+                <div className="min-h-[600px] rounded-lg border border-border bg-slate-50">
+                  <ResumeDiffView
+                    rawText={result.originalContent}
+                    optimizedText={result.optimizedContent}
+                  />
+                </div>
+              </TabsContent>
               <TabsContent value="original" className="mt-4">
                 <div className="relative min-h-[200px] rounded-lg border border-border bg-muted/30 p-4">
                   <button

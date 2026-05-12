@@ -166,14 +166,14 @@ export default function DashboardPage() {
       <SidebarInset className="flex flex-col">
         <DashboardHeader />
         <main className="flex-1 overflow-hidden p-4">
-          <div className="grid h-full gap-4 lg:grid-cols-2">
-            {/* Left Panel - Upload & Input */}
-            <div className="flex flex-col overflow-hidden">
+          <div className="grid h-full gap-6 lg:grid-cols-3">
+            {/* Left Panel - Upload & Input (33%) */}
+            <div className="lg:col-span-1 flex flex-col overflow-hidden">
               <UploadPanel onAnalyze={handleAnalyze} isAnalyzing={isAnalyzing} />
             </div>
 
-            {/* Right Panel - Analysis Results */}
-            <div className="overflow-hidden rounded-lg border border-border bg-card/50 p-4">
+            {/* Right Panel - Analysis Results (67%) */}
+            <div className="lg:col-span-2 overflow-hidden rounded-lg border border-border bg-card/50 p-4">
               <AnalysisPanel result={analysisResult} isAnalyzing={isAnalyzing} />
             </div>
           </div>

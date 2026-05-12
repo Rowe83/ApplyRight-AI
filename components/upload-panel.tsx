@@ -215,7 +215,7 @@ export function UploadPanel({ onAnalyze, isAnalyzing }: UploadPanelProps) {
         </CardContent>
       </Card>
 
-      <Card className="flex-1 border-border bg-card">
+      <Card className="flex-1 border-border bg-card flex flex-col">
         <CardHeader className="pb-3">
           <CardTitle className="text-base">目标职位描述</CardTitle>
           <CardDescription>粘贴您想申请的职位描述（JD）</CardDescription>
