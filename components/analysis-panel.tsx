@@ -23,7 +23,6 @@ import {
   Copy,
   Check
 } from "lucide-react"
-import { cn } from "@/lib/utils"
 
 export interface AnalysisResult {
   matchScore: number
@@ -190,15 +189,14 @@ export function AnalysisPanel({ result, isAnalyzing }: AnalysisPanelProps) {
                         <h4 className="text-sm font-medium">{suggestion.category}</h4>
                         <ul className="space-y-2">
                           {suggestion.items.map((item, itemIndex) => (
-                            <li 
-                              key={itemIndex} 
-                              className={cn(
-                                "flex items-start gap-2 rounded-md bg-blue-50/50 p-2 text-sm text-muted-foreground",
-                                itemIndex === 0 && "border-l-4 border-blue-500"
-                              )}
+                            <li
+                              key={itemIndex}
+                              className="group relative flex items-center gap-3 space-x-3 overflow-hidden rounded-xl bg-slate-900/60 p-3 shadow-sm backdrop-blur-sm transition-all duration-200 hover:bg-slate-900/80 border border-slate-800/80 hover:border-slate-700"
                             >
                               <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-blue-500" />
-                              <span>{item}</span>
+                              <span className="flex-1 text-sm font-medium text-slate-200">
+                                {item}
+                              </span>
                             </li>
                           ))}
                         </ul>
