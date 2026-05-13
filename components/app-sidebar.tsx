@@ -25,13 +25,13 @@ const navItems = [
   {
     title: "仪表盘",
     icon: LayoutDashboard,
-    href: "#",
-    isActive: true,
+    href: "/",
+    isActive: false,
   },
   {
     title: "我的简历",
     icon: FileText,
-    href: "#",
+    href: "/dashboard/resumes",
   },
   {
     title: "简历库",

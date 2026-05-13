@@ -1,11 +1,11 @@
 "use client"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect } from "react"
 import { toast } from "sonner"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { Upload, FileText, X, Sparkles, Loader2 } from "lucide-react"
+import { Upload, FileText, X, Sparkles, Loader2, Library } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { supabase } from "@/lib/supabase"
 import { extractPdfTextFromFile } from "@/lib/extract-pdf-text"
@@ -13,18 +13,27 @@ import { extractPdfTextFromFile } from "@/lib/extract-pdf-text"
 interface UploadPanelProps {
   onAnalyze: (payload: { resumeId: string; jdText: string }) => void
   isAnalyzing: boolean
+  preloadedResume?: { id: string; name: string } | null
 }
 
 /** Storage keys must be ASCII-only; Unicode filenames (e.g. 中文) cause Invalid key */
 const buildResumeStoragePath = (userId: string) =>
   `${userId}/${Date.now()}_${crypto.randomUUID()}.pdf`
 
-export function UploadPanel({ onAnalyze, isAnalyzing }: UploadPanelProps) {
+export const UploadPanel = ({ onAnalyze, isAnalyzing, preloadedResume }: UploadPanelProps) => {
   const [resumeFile, setResumeFile] = useState<File | null>(null)
   const [jobDescription, setJobDescription] = useState("")
-  const [jdId, setJdId] = useState<string | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
+  const [preloadedDismissed, setPreloadedDismissed] = useState(false)
+
+  useEffect(() => {
+    setPreloadedDismissed(false)
+  }, [preloadedResume?.id])
+
+  const libraryResumeActive = Boolean(
+    preloadedResume && !preloadedDismissed && !resumeFile
+  )
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -60,8 +69,26 @@ export function UploadPanel({ onAnalyze, isAnalyzing }: UploadPanelProps) {
     setResumeFile(null)
   }, [])
 
+  const handleDismissPreloaded = useCallback(() => {
+    setPreloadedDismissed(true)
+  }, [])
+
   const handleAnalyzeClick = useCallback(async () => {
-    if (!resumeFile || !jobDescription.trim()) return
+    const jdText = jobDescription.trim()
+    if (!jdText) {
+      toast.error("请填写职位描述")
+      return
+    }
+
+    if (libraryResumeActive && preloadedResume) {
+      onAnalyze({ resumeId: preloadedResume.id, jdText })
+      return
+    }
+
+    if (!resumeFile) {
+      toast.error("请上传 PDF 简历，或从「我的简历」进入以使用已有简历")
+      return
+    }
 
     setIsUploading(true)
 
@@ -81,7 +108,7 @@ export function UploadPanel({ onAnalyze, isAnalyzing }: UploadPanelProps) {
       }
 
       const extractedJobTitle =
-        jobDescription
+        jdText
           .split("\n")
           .map((line) => line.trim())
           .find((line) => line.length > 0) ?? "未命名岗位"
@@ -91,7 +118,7 @@ export function UploadPanel({ onAnalyze, isAnalyzing }: UploadPanelProps) {
         .insert({
           user_id: user.id,
           job_title: extractedJobTitle,
-          full_text: jobDescription,
+          full_text: jdText,
         })
         .select("id")
         .single()
@@ -99,8 +126,6 @@ export function UploadPanel({ onAnalyze, isAnalyzing }: UploadPanelProps) {
       if (jdInsertError) {
         throw jdInsertError
       }
-
-      setJdId(insertedJd.id)
 
       const filePath = buildResumeStoragePath(user.id)
 
@@ -136,7 +161,7 @@ export function UploadPanel({ onAnalyze, isAnalyzing }: UploadPanelProps) {
         description: `已完成 PDF 解析并写入 resumes 表，JD ID: ${insertedJd.id}`,
       })
 
-      onAnalyze({ resumeId: insertedResume.id, jdText: jobDescription })
+      onAnalyze({ resumeId: insertedResume.id, jdText })
     } catch (error) {
       let message =
         error instanceof Error ? error.message : "上传失败，请稍后重试"
@@ -147,9 +172,10 @@ export function UploadPanel({ onAnalyze, isAnalyzing }: UploadPanelProps) {
     } finally {
       setIsUploading(false)
     }
-  }, [jobDescription, onAnalyze, resumeFile])
+  }, [jobDescription, onAnalyze, resumeFile, libraryResumeActive, preloadedResume])
 
-  const canAnalyze = resumeFile && jobDescription.trim().length > 0
+  const canAnalyze =
+    Boolean(jobDescription.trim()) && (Boolean(resumeFile) || libraryResumeActive)
 
   return (
     <div className="flex h-full flex-col gap-4">
@@ -159,39 +185,7 @@ export function UploadPanel({ onAnalyze, isAnalyzing }: UploadPanelProps) {
           <CardDescription>仅支持 PDF 格式</CardDescription>
         </CardHeader>
         <CardContent>
-          {!resumeFile ? (
-            <div
-              className={cn(
-                "relative flex min-h-[160px] cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed transition-all",
-                isDragging 
-                  ? "border-primary bg-primary/5" 
-                  : "border-muted-foreground/25 hover:border-primary/50 hover:bg-primary/5"
-              )}
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
-              onClick={() => document.getElementById("resume-upload")?.click()}
-            >
-              <input
-                id="resume-upload"
-                type="file"
-                accept=".pdf,application/pdf"
-                className="hidden"
-                onChange={handleFileSelect}
-              />
-              <div className={cn(
-                "mb-3 flex h-12 w-12 items-center justify-center rounded-full transition-colors",
-                isDragging ? "bg-primary/20" : "bg-muted"
-              )}>
-                <Upload className={cn(
-                  "h-6 w-6 transition-colors",
-                  isDragging ? "text-primary" : "text-muted-foreground"
-                )} />
-              </div>
-              <p className="text-sm font-medium">拖放简历文件到此处</p>
-              <p className="mt-1 text-xs text-muted-foreground">或点击浏览本地文件</p>
-            </div>
-          ) : (
+          {resumeFile ? (
             <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/50 p-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
                 <FileText className="h-5 w-5 text-primary" />
@@ -207,9 +201,78 @@ export function UploadPanel({ onAnalyze, isAnalyzing }: UploadPanelProps) {
                 size="icon"
                 className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
                 onClick={handleRemoveFile}
+                type="button"
+                aria-label="移除已选简历文件"
               >
                 <X className="h-4 w-4" />
               </Button>
+            </div>
+          ) : libraryResumeActive && preloadedResume ? (
+            <div className="flex items-center gap-3 rounded-lg border border-primary/30 bg-primary/5 p-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/15">
+                <Library className="h-5 w-5 text-primary" aria-hidden />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-medium text-primary">已从简历库加载</p>
+                <p className="truncate text-sm font-medium text-foreground">{preloadedResume.name}</p>
+                <p className="text-xs text-muted-foreground">无需再次上传，填写 JD 后即可分析</p>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
+                onClick={handleDismissPreloaded}
+                type="button"
+                aria-label="取消使用简历库中的简历"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          ) : (
+            <div
+              className={cn(
+                "relative flex min-h-[160px] cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed transition-all",
+                isDragging
+                  ? "border-primary bg-primary/5"
+                  : "border-muted-foreground/25 hover:border-primary/50 hover:bg-primary/5"
+              )}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              onClick={() => document.getElementById("resume-upload")?.click()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault()
+                  document.getElementById("resume-upload")?.click()
+                }
+              }}
+              role="button"
+              tabIndex={0}
+              aria-label="选择或拖放 PDF 简历"
+            >
+              <input
+                id="resume-upload"
+                type="file"
+                accept=".pdf,application/pdf"
+                className="hidden"
+                onChange={handleFileSelect}
+              />
+              <div
+                className={cn(
+                  "mb-3 flex h-12 w-12 items-center justify-center rounded-full transition-colors",
+                  isDragging ? "bg-primary/20" : "bg-muted"
+                )}
+              >
+                <Upload
+                  className={cn(
+                    "h-6 w-6 transition-colors",
+                    isDragging ? "text-primary" : "text-muted-foreground"
+                  )}
+                  aria-hidden
+                />
+              </div>
+              <p className="text-sm font-medium">拖放简历文件到此处</p>
+              <p className="mt-1 text-xs text-muted-foreground">或点击浏览本地文件</p>
             </div>
           )}
         </CardContent>
@@ -240,6 +303,7 @@ export function UploadPanel({ onAnalyze, isAnalyzing }: UploadPanelProps) {
             )}
             disabled={!canAnalyze || isAnalyzing || isUploading}
             onClick={handleAnalyzeClick}
+            type="button"
           >
             {isUploading ? (
               <>
