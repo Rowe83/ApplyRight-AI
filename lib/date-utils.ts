@@ -92,3 +92,20 @@ export const formatDateTime = (dateString: string): string => {
     minute: "2-digit",
   })
 }
+
+/**
+ * Local wall-clock style for tables, e.g. 2026-05-13 14:30
+ */
+export const formatCompactLocalDateTime = (
+  input: string | number | Date | null | undefined,
+): string => {
+  const date = toValidDate(input)
+  if (!date) {
+    return "—"
+  }
+
+  const y = date.getFullYear()
+  const m = pad2(date.getMonth() + 1)
+  const day = pad2(date.getDate())
+  return `${y}-${m}-${day} ${pad2(date.getHours())}:${pad2(date.getMinutes())}`
+}

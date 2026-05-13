@@ -200,23 +200,27 @@ export async function POST(req: NextRequest) {
 
     const { data: resume, error: resumeError } = await adminClient
       .from("resumes")
-      .select("id, raw_text")
+      .select("id, raw_text, original_filename")
       .eq("id", resumeId)
       .eq("user_id", userId)
-      .single<{ id: string; raw_text: string | null }>()
+      .single<{
+        id: string
+        raw_text: string | null
+        original_filename: string | null
+      }>()
 
     if (resumeError || !resume) {
       return NextResponse.json({ error: "Resume not found" }, { status: 404 })
     }
 
-    let jdRecord: { id: string; full_text: string | null } | null = null
+    let jdRecord: { id: string; full_text: string | null; job_title: string | null } | null = null
     if (jdId) {
       const { data: jd, error: jdError } = await adminClient
         .from("job_descriptions")
-        .select("id, full_text")
+        .select("id, full_text, job_title")
         .eq("id", jdId)
         .eq("user_id", userId)
-        .single<{ id: string; full_text: string | null }>()
+        .single<{ id: string; full_text: string | null; job_title: string | null }>()
       if (jdError || !jd) {
         return NextResponse.json({ error: "Job description not found" }, { status: 404 })
       }
@@ -234,8 +238,8 @@ export async function POST(req: NextRequest) {
           job_title: fallbackTitle,
           full_text: jdTextFromPayload,
         })
-        .select("id, full_text")
-        .single<{ id: string; full_text: string | null }>()
+        .select("id, full_text, job_title")
+        .single<{ id: string; full_text: string | null; job_title: string | null }>()
       if (createJdError || !createdJd) {
         return NextResponse.json(
           { error: "Failed to create job description from jdText" },
@@ -289,6 +293,30 @@ export async function POST(req: NextRequest) {
         { error: "Failed to deduct credits" },
         { status: 409 }
       )
+    }
+
+    const resumeTitle =
+      resume.original_filename?.trim() || "未命名简历"
+    const targetJob =
+      jdRecord.job_title?.trim() ||
+      jdTextFromPayload
+        ?.split("\n")
+        .map((line) => line.trim())
+        .find((line) => line.length > 0) ||
+      "未命名岗位"
+
+    const { error: historyError } = await adminClient.from("matching_histories").insert({
+      user_id: userId,
+      resume_id: resume.id,
+      resume_title: resumeTitle,
+      target_job: targetJob,
+      score: aiResult.match_score,
+      raw_text_snapshot: resumeText,
+      optimized_text_snapshot: aiResult.optimized_content,
+    })
+
+    if (historyError) {
+      console.error("matching_histories insert failed:", historyError)
     }
 
     return NextResponse.json({

@@ -1,5 +1,7 @@
 "use client"
 
+import Link from "next/link"
+import { usePathname } from "next/navigation"
 import {
   Sidebar,
   SidebarContent,
@@ -26,7 +28,6 @@ const navItems = [
     title: "仪表盘",
     icon: LayoutDashboard,
     href: "/",
-    isActive: false,
   },
   {
     title: "我的简历",
@@ -41,7 +42,7 @@ const navItems = [
   {
     title: "匹配历史",
     icon: History,
-    href: "#",
+    href: "/dashboard/history",
   },
   {
     title: "积分使用",
@@ -50,7 +51,19 @@ const navItems = [
   },
 ]
 
-export function AppSidebar() {
+const isNavActive = (pathname: string, href: string) => {
+  if (!href.startsWith("/")) {
+    return false
+  }
+  if (href === "/") {
+    return pathname === "/"
+  }
+  return pathname === href || pathname.startsWith(`${href}/`)
+}
+
+export const AppSidebar = () => {
+  const pathname = usePathname()
+
   return (
     <Sidebar collapsible="icon" className="border-r border-sidebar-border">
       <SidebarHeader className="p-4">
@@ -71,13 +84,20 @@ export function AppSidebar() {
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton
                     asChild
-                    isActive={item.isActive}
+                    isActive={isNavActive(pathname, item.href)}
                     tooltip={item.title}
                   >
-                    <a href={item.href}>
-                      <item.icon className="h-4 w-4" />
-                      <span>{item.title}</span>
-                    </a>
+                    {item.href.startsWith("/") ? (
+                      <Link href={item.href}>
+                        <item.icon className="h-4 w-4" />
+                        <span>{item.title}</span>
+                      </Link>
+                    ) : (
+                      <a href={item.href}>
+                        <item.icon className="h-4 w-4" />
+                        <span>{item.title}</span>
+                      </a>
+                    )}
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
