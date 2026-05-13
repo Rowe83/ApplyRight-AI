@@ -37,7 +37,7 @@ const navItems = [
   {
     title: "简历库",
     icon: FolderArchive,
-    href: "#",
+    href: "/dashboard/templates",
   },
   {
     title: "匹配历史",
