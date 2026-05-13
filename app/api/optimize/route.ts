@@ -24,6 +24,12 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
+const insufficientCreditsResponse = () =>
+  NextResponse.json(
+    { error: "余额不足", code: "INSUFFICIENT_CREDITS" },
+    { status: 403 },
+  )
+
 const systemPrompt =
   "你是一位技术专家级猎头。请根据提供的简历和JD，输出一份深度分析。必须严格返回 JSON，不要输出任何额外文本。JSON结构必须为：{\"match_score\": 65, \"strengths\": [\"...\"], \"weaknesses\": [\"...\"], \"missing_keywords\": [\"...\"], \"core_suggestions\": [\"...\"], \"optimized_content\": \"Markdown格式的完整润色简历...\", \"remaining_credits\": 2}。要求：match_score 为 0-100 数字；strengths/weaknesses/missing_keywords/core_suggestions 都必须是字符串数组；optimized_content 必须是 Markdown 格式并使用 STAR 原则，且保留原简历真实性，仅优化专业表达。remaining_credits 字段必须保留为数字占位。"
 
@@ -116,16 +122,19 @@ const callAi = async (resumeText: string, jdText: string) => {
 }
 
 export async function POST(req: NextRequest) {
+  let reservedCredit = false
+  let adminClient: ReturnType<typeof createClient> | null = null
+  let userIdForRefund: string | null = null
+
   try {
     if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceRoleKey) {
       return NextResponse.json(
         { error: "Missing Supabase environment variables for /api/optimize" },
-        { status: 500 }
+        { status: 500 },
       )
     }
 
-    const authClient = createClient(supabaseUrl, supabaseAnonKey)
-    const adminClient = createClient(supabaseUrl, supabaseServiceRoleKey, {
+    adminClient = createClient(supabaseUrl, supabaseServiceRoleKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     })
 
@@ -168,6 +177,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
+    userIdForRefund = userId
+
     const payload = (await req.json()) as OptimizePayload
     const resumeId = payload.resume_id?.trim() || payload.resumeId?.trim()
     const jdId = payload.jd_id?.trim()
@@ -176,26 +187,8 @@ export async function POST(req: NextRequest) {
     if (!resumeId || (!jdId && !jdTextFromPayload)) {
       return NextResponse.json(
         { error: "Missing resume_id/resumeId and jd_id/jdText" },
-        { status: 400 }
+        { status: 400 },
       )
-    }
-
-    const { data: profile, error: profileError } = await adminClient
-      .from("profiles")
-      .select("credits")
-      .eq("id", userId)
-      .single<{ credits: number | null }>()
-
-    if (profileError) {
-      return NextResponse.json(
-        { error: "Failed to load profile credits" },
-        { status: 500 }
-      )
-    }
-
-    const currentCredits = profile?.credits ?? 0
-    if (!profile || currentCredits < 1) {
-      return NextResponse.json({ error: "余额不足" }, { status: 403 })
     }
 
     const { data: resume, error: resumeError } = await adminClient
@@ -243,7 +236,7 @@ export async function POST(req: NextRequest) {
       if (createJdError || !createdJd) {
         return NextResponse.json(
           { error: "Failed to create job description from jdText" },
-          { status: 500 }
+          { status: 500 },
         )
       }
       jdRecord = createdJd
@@ -254,11 +247,45 @@ export async function POST(req: NextRequest) {
     if (!resumeText || !jdText) {
       return NextResponse.json(
         { error: "Resume/JD content is empty" },
-        { status: 400 }
+        { status: 400 },
       )
     }
 
-    const aiResult = await callAi(resumeText, jdText)
+    // Atomic pre-check + hold 1 credit before any LLM call (avoids concurrent double-spend / token abuse)
+    const { data: reservedBalance, error: reserveError } = await adminClient.rpc(
+      "try_reserve_optimize_credit",
+      { p_user_id: userId },
+    )
+
+    if (reserveError) {
+      console.error("try_reserve_optimize_credit failed:", reserveError)
+      return NextResponse.json(
+        { error: "Failed to verify credits", code: "CREDITS_CHECK_FAILED" },
+        { status: 500 },
+      )
+    }
+
+    if (reservedBalance === null || reservedBalance === undefined) {
+      return insufficientCreditsResponse()
+    }
+
+    const remainingAfterReserve =
+      typeof reservedBalance === "number" ? reservedBalance : Number(reservedBalance)
+    if (!Number.isFinite(remainingAfterReserve)) {
+      return insufficientCreditsResponse()
+    }
+
+    reservedCredit = true
+
+    let aiResult: OptimizeAiResult
+    try {
+      aiResult = await callAi(resumeText, jdText)
+    } catch (aiErr) {
+      await adminClient.rpc("refund_optimize_credit", { p_user_id: userId })
+      reservedCredit = false
+      const message = aiErr instanceof Error ? aiErr.message : "AI 调用失败"
+      return NextResponse.json({ error: message }, { status: 500 })
+    }
 
     const { data: insertedMatch, error: insertMatchError } = await adminClient
       .from("matches")
@@ -273,26 +300,23 @@ export async function POST(req: NextRequest) {
       .single<{ id: string }>()
 
     if (insertMatchError || !insertedMatch) {
+      await adminClient.rpc("refund_optimize_credit", { p_user_id: userId })
+      reservedCredit = false
       return NextResponse.json(
         { error: "Failed to save optimize result" },
-        { status: 500 }
+        { status: 500 },
       )
     }
 
-    const { data: updatedProfile, error: deductError } = await adminClient
-      .from("profiles")
-      .update({ credits: currentCredits - 1 })
-      .eq("id", userId)
-      .gt("credits", 0)
-      .select("credits")
-      .single<{ credits: number }>()
+    const { error: ledgerError } = await adminClient.from("credit_transactions").insert({
+      user_id: userId,
+      amount: -1,
+      action_type: "consume",
+      description: "简历智能优化（DeepSeek 匹配分析）",
+    })
 
-    if (deductError || !updatedProfile) {
-      await adminClient.from("matches").delete().eq("id", insertedMatch.id)
-      return NextResponse.json(
-        { error: "Failed to deduct credits" },
-        { status: 409 }
-      )
+    if (ledgerError) {
+      console.error("credit_transactions consume insert failed:", ledgerError)
     }
 
     const resumeTitle =
@@ -319,6 +343,8 @@ export async function POST(req: NextRequest) {
       console.error("matching_histories insert failed:", historyError)
     }
 
+    reservedCredit = false
+
     return NextResponse.json({
       match_score: aiResult.match_score,
       strengths: aiResult.strengths,
@@ -328,10 +354,13 @@ export async function POST(req: NextRequest) {
       suggestions: aiResult.core_suggestions,
       original_content: resumeText,
       optimized_content: aiResult.optimized_content,
-      remaining_credits: updatedProfile.credits,
+      remaining_credits: remainingAfterReserve,
       match_id: insertedMatch.id,
     })
   } catch (error) {
+    if (reservedCredit && adminClient && userIdForRefund) {
+      await adminClient.rpc("refund_optimize_credit", { p_user_id: userIdForRefund })
+    }
     const message = error instanceof Error ? error.message : "Unexpected server error"
     return NextResponse.json({ error: message }, { status: 500 })
   }

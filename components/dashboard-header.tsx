@@ -1,9 +1,11 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
+import { CREDITS_CHANGED_EVENT } from "@/lib/credits-events"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -30,44 +32,53 @@ export function DashboardHeader() {
   const [displayName, setDisplayName] = useState("用户")
   const [credits, setCredits] = useState(0)
 
+  const loadUserProfile = useCallback(async () => {
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser()
+
+    if (userError || !user) {
+      setIsLoading(false)
+      return
+    }
+
+    setUserEmail(user.email ?? "")
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("username, credits")
+      .eq("id", user.id)
+      .maybeSingle<ProfileData>()
+
+    const fullName = user.user_metadata?.full_name as string | undefined
+    setDisplayName(profile?.username || fullName || user.email?.split("@")[0] || "用户")
+    setCredits(profile?.credits ?? 0)
+    setIsLoading(false)
+  }, [])
+
   useEffect(() => {
     let cancelled = false
 
-    const loadUserProfile = async () => {
-      const {
-        data: { user },
-        error: userError,
-      } = await supabase.auth.getUser()
-
+    const run = async () => {
+      await loadUserProfile()
       if (cancelled) return
-
-      if (userError || !user) {
-        setIsLoading(false)
-        return
-      }
-
-      setUserEmail(user.email ?? "")
-
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("username, credits")
-        .eq("id", user.id)
-        .maybeSingle<ProfileData>()
-
-      if (cancelled) return
-
-      const fullName = user.user_metadata?.full_name as string | undefined
-      setDisplayName(profile?.username || fullName || user.email?.split("@")[0] || "用户")
-      setCredits(profile?.credits ?? 0)
-      setIsLoading(false)
     }
 
-    void loadUserProfile()
+    void run()
 
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [loadUserProfile])
+
+  useEffect(() => {
+    const handleCreditsChanged = () => {
+      void loadUserProfile()
+    }
+    window.addEventListener(CREDITS_CHANGED_EVENT, handleCreditsChanged)
+    return () => window.removeEventListener(CREDITS_CHANGED_EVENT, handleCreditsChanged)
+  }, [loadUserProfile])
 
   const handleSignOut = async () => {
     const { error } = await supabase.auth.signOut()
@@ -89,22 +100,28 @@ export function DashboardHeader() {
         <h1 className="text-lg font-medium">仪表盘</h1>
       </div>
       <div className="flex items-center gap-3">
-        <Badge 
-          variant="outline" 
-          className="flex items-center gap-1.5 border-primary/30 bg-primary/10 px-3 py-1 text-primary"
+        <Link
+          href="/dashboard/billing"
+          className="rounded-md outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          aria-label="打开积分与计费中心"
         >
-          <Coins className="h-3.5 w-3.5" />
-          <span className="font-medium">
-            {isLoading ? (
-              <span className="inline-flex items-center gap-1">
-                <Loader2 className="h-3 w-3 animate-spin" />
-                加载中
-              </span>
-            ) : (
-              `${credits} 积分剩余`
-            )}
-          </span>
-        </Badge>
+          <Badge
+            variant="outline"
+            className="flex cursor-pointer items-center gap-1.5 border-primary/30 bg-primary/10 px-3 py-1 text-primary transition-colors hover:bg-primary/15"
+          >
+            <Coins className="h-3.5 w-3.5" />
+            <span className="font-medium">
+              {isLoading ? (
+                <span className="inline-flex items-center gap-1">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  加载中
+                </span>
+              ) : (
+                `${credits} 积分剩余`
+              )}
+            </span>
+          </Badge>
+        </Link>
         <Button
           type="button"
           variant="outline"
@@ -142,13 +159,17 @@ export function DashboardHeader() {
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem>
-              <User className="mr-2 h-4 w-4" />
-              <span>个人资料</span>
+            <DropdownMenuItem asChild>
+              <Link href="#" className="cursor-pointer">
+                <User className="mr-2 h-4 w-4" />
+                <span>个人资料</span>
+              </Link>
             </DropdownMenuItem>
-            <DropdownMenuItem>
-              <CreditCard className="mr-2 h-4 w-4" />
-              <span>账单管理</span>
+            <DropdownMenuItem asChild>
+              <Link href="/dashboard/billing" className="cursor-pointer">
+                <CreditCard className="mr-2 h-4 w-4" />
+                <span>账单管理</span>
+              </Link>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem

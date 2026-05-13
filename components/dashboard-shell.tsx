@@ -10,6 +10,7 @@ import { UploadPanel } from "@/components/upload-panel"
 import { AnalysisPanel, AnalysisResult } from "@/components/analysis-panel"
 import { CheckCircle2, Loader2 } from "lucide-react"
 import { supabase } from "@/lib/supabase"
+import { dispatchCreditsChanged } from "@/lib/credits-events"
 
 export type ResumeIdSearchParamKey = "resumeId" | "id"
 
@@ -124,6 +125,7 @@ const DashboardPageBody = ({ resumeIdSearchParam }: DashboardPageBodyProps) => {
 
       const data = (await response.json()) as {
         error?: string
+        code?: string
         match_score?: number
         score?: number
         strengths?: string[]
@@ -138,9 +140,13 @@ const DashboardPageBody = ({ resumeIdSearchParam }: DashboardPageBodyProps) => {
       console.log("optimize api raw response:", data)
 
       if (!response.ok) {
-        if (data.error?.includes("余额不足")) {
-          toast.error("余额不足", {
-            description: "当前积分不足，请先充值后再分析",
+        const insufficient =
+          response.status === 403 &&
+          (data.code === "INSUFFICIENT_CREDITS" || data.error === "余额不足")
+        if (insufficient) {
+          toast.error("积分不足", {
+            description: "当前额度已用尽，请前往「积分与计费」模拟充值后再试",
+            duration: 6000,
           })
           return
         }
@@ -185,6 +191,8 @@ const DashboardPageBody = ({ resumeIdSearchParam }: DashboardPageBodyProps) => {
         icon: <CheckCircle2 className="h-4 w-4 text-emerald-500" />,
         duration: 5000,
       })
+
+      dispatchCreditsChanged()
     } catch (error) {
       const message = error instanceof Error ? error.message : "分析失败，请稍后重试"
       toast.error("分析失败", { description: message })

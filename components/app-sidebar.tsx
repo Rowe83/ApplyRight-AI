@@ -47,7 +47,7 @@ const navItems = [
   {
     title: "积分使用",
     icon: Coins,
-    href: "#",
+    href: "/dashboard/billing",
   },
 ]
 
