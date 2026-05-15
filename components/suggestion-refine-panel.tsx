@@ -50,7 +50,9 @@ export const SuggestionRefinePanel = ({
       resumeId: resumeId ?? undefined,
       targetJob: targetJob ?? undefined,
     })
-    const href = resumeId ? `/?id=${encodeURIComponent(resumeId)}&refine=1` : "/?refine=1"
+    const href = resumeId
+      ? `/?resumeId=${encodeURIComponent(resumeId)}&refine=1`
+      : "/?refine=1"
     toast.success("已带上选中建议", {
       description: "返回工作台后粘贴 JD 并重新分析，AI 将侧重这些改进点",
     })

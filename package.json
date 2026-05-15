@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "db:apply-credits-billing": "node scripts/apply-credits-billing.mjs"
+    "db:apply-credits-billing": "node scripts/apply-credits-billing.mjs",
+    "db:apply-analysis-json": "node scripts/apply-analysis-json.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",

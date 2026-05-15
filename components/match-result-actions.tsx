@@ -5,7 +5,7 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
-import { buildSaveAsResumeFilename } from "@/lib/match-analysis"
+import { buildSaveAsResumeFilename, getOptimizedTextForDiff } from "@/lib/match-analysis"
 import type { AnalysisResult } from "@/components/analysis-panel"
 import { supabase } from "@/lib/supabase"
 import { Check, Copy, FilePlus2, Loader2 } from "lucide-react"
@@ -27,7 +27,7 @@ export const MatchResultActions = ({ result }: MatchResultActionsProps) => {
   const [isSaving, setIsSaving] = useState(false)
 
   const handleCopyOptimized = async () => {
-    const text = result.optimizedContent?.trim()
+    const text = getOptimizedTextForDiff(result).trim()
     if (!text) {
       return
     }
@@ -42,7 +42,8 @@ export const MatchResultActions = ({ result }: MatchResultActionsProps) => {
   }
 
   const handleSaveAsNewResume = async () => {
-    if (!result.optimizedContent?.trim()) {
+    const optimizedText = getOptimizedTextForDiff(result).trim()
+    if (!optimizedText) {
       toast.error("优化内容为空，无法保存")
       return
     }
@@ -75,7 +76,7 @@ export const MatchResultActions = ({ result }: MatchResultActionsProps) => {
       const { error: insertError } = await supabase.from("resumes").insert({
         user_id: user.id,
         file_url: fileUrl,
-        raw_text: result.optimizedContent,
+        raw_text: optimizedText,
         original_filename: filename,
       })
 

@@ -1,4 +1,9 @@
-export type HistoryFetchErrorKind = "missing_table" | "rls" | "network" | "unknown"
+export type HistoryFetchErrorKind =
+  | "missing_table"
+  | "missing_analysis_json_column"
+  | "rls"
+  | "network"
+  | "unknown"
 
 export type ParsedHistoryFetchError = {
   kind: HistoryFetchErrorKind
@@ -41,6 +46,19 @@ export const parseHistoryFetchError = (e: unknown): ParsedHistoryFetchError => {
     return {
       kind: "missing_table",
       message: "尚未在数据库中创建 matching_histories 表。请在 Supabase SQL Editor 中执行下方脚本后点击「重试」。",
+      technical: combined,
+    }
+  }
+
+  const looksLikeMissingAnalysisJson =
+    /analysis_json/i.test(combined) &&
+    (/column|does not exist|Could not find/i.test(combined) || code === "42703")
+
+  if (looksLikeMissingAnalysisJson) {
+    return {
+      kind: "missing_analysis_json_column",
+      message:
+        "matching_histories 表缺少 analysis_json 列。请执行 analysis_json 迁移脚本，或运行 npm run db:apply-analysis-json 后重试。",
       technical: combined,
     }
   }

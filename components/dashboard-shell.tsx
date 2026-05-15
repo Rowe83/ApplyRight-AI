@@ -1,16 +1,18 @@
 "use client"
 
 import { useState, useEffect, Suspense } from "react"
+import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 import { UploadPanel } from "@/components/upload-panel"
-import { AnalysisPanel, AnalysisResult } from "@/components/analysis-panel"
-import { CheckCircle2, Loader2 } from "lucide-react"
+import { AnalysisPanel } from "@/components/analysis-panel"
+import { Button } from "@/components/ui/button"
+import { CheckCircle2, GitCompare, Loader2 } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import { dispatchCreditsChanged } from "@/lib/credits-events"
 import { formatMatchScoreDisplay } from "@/lib/format-score"
 import { apiPayloadToAnalysisResult } from "@/lib/match-analysis"
-import { persistMatchAnalysisResult } from "@/lib/match-result-storage"
+import { persistMatchAnalysisResult, readMatchAnalysisResult } from "@/lib/match-result-storage"
 import { clearRefineSuggestions, readRefineSuggestions } from "@/lib/refine-suggestions-storage"
 import type { AnalysisResultWithMeta } from "@/components/match-result-actions"
 
@@ -24,8 +26,20 @@ const DashboardPageBody = ({ resumeIdSearchParam }: DashboardPageBodyProps) => {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [isAnalyzing, setIsAnalyzing] = useState(false)
-  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null)
   const [preloadedResume, setPreloadedResume] = useState<{ id: string; name: string } | null>(null)
+  const [lastResultHref, setLastResultHref] = useState<string | null>(null)
+
+  useEffect(() => {
+    const stored = readMatchAnalysisResult()
+    if (!stored) {
+      setLastResultHref(null)
+      return
+    }
+    const href = stored.historyId
+      ? `/dashboard/match-result?historyId=${encodeURIComponent(stored.historyId)}`
+      : "/dashboard/match-result"
+    setLastResultHref(href)
+  }, [isAnalyzing])
 
   useEffect(() => {
     let cancelled = false
@@ -45,11 +59,24 @@ const DashboardPageBody = ({ resumeIdSearchParam }: DashboardPageBodyProps) => {
         return
       }
 
-      const resumeId = searchParams.get(resumeIdSearchParam)?.trim()
+      const resumeIdFromParams =
+        searchParams.get(resumeIdSearchParam)?.trim() ||
+        (resumeIdSearchParam === "id"
+          ? searchParams.get("resumeId")?.trim()
+          : searchParams.get("id")?.trim()) ||
+        ""
+
+      const resumeIdFromRefine =
+        searchParams.get("refine") === "1" ? readRefineSuggestions()?.resumeId?.trim() : ""
+
+      const resumeId = resumeIdFromParams || resumeIdFromRefine || ""
+
       if (!resumeId) {
         setPreloadedResume(null)
         return
       }
+
+      const shouldToastPreload = Boolean(resumeIdFromParams)
 
       try {
         const { data: resume, error: resumeError } = await supabase
@@ -71,9 +98,11 @@ const DashboardPageBody = ({ resumeIdSearchParam }: DashboardPageBodyProps) => {
 
         if (resume) {
           setPreloadedResume({ id: resumeId, name: resume.original_filename })
-          toast.success(`已加载简历: ${resume.original_filename}`, {
-            duration: 3000,
-          })
+          if (shouldToastPreload) {
+            toast.success(`已加载简历: ${resume.original_filename}`, {
+              duration: 3000,
+            })
+          }
         } else {
           setPreloadedResume(null)
         }
@@ -178,7 +207,6 @@ const DashboardPageBody = ({ resumeIdSearchParam }: DashboardPageBodyProps) => {
         targetJob: data.target_job ?? null,
       }
 
-      setAnalysisResult(resultWithMeta)
       persistMatchAnalysisResult(resultWithMeta)
       clearRefineSuggestions()
 
@@ -216,7 +244,29 @@ const DashboardPageBody = ({ resumeIdSearchParam }: DashboardPageBodyProps) => {
       </div>
 
       <div className="min-h-0 overflow-hidden rounded-lg border border-border bg-card/50 p-4 lg:col-span-2">
-        <AnalysisPanel result={analysisResult} isAnalyzing={isAnalyzing} />
+        {isAnalyzing ? (
+          <AnalysisPanel result={null} isAnalyzing />
+        ) : lastResultHref ? (
+          <div className="flex h-full min-h-[min(70vh,800px)] flex-col items-center justify-center gap-4 p-6 text-center">
+            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
+              <GitCompare className="h-7 w-7 text-primary" aria-hidden />
+            </div>
+            <div className="space-y-2">
+              <p className="text-base font-medium text-foreground">分析结果已生成</p>
+              <p className="max-w-sm text-sm text-muted-foreground">
+                在匹配结果页查看 Diff 对比、JD 缺口与优化建议，并支持复制或另存为新简历。
+              </p>
+            </div>
+            <Button asChild className="gap-2">
+              <Link href={lastResultHref} aria-label="查看匹配结果">
+                <GitCompare className="h-4 w-4" aria-hidden />
+                查看匹配结果
+              </Link>
+            </Button>
+          </div>
+        ) : (
+          <AnalysisPanel result={null} isAnalyzing={false} />
+        )}
       </div>
     </div>
   )

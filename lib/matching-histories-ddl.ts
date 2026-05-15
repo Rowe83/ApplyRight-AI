@@ -1,6 +1,7 @@
 /**
  * Standalone DDL for Supabase SQL Editor (kept in sync with
- * supabase/migrations/20260513120000_matching_histories.sql).
+ * supabase/migrations/20260513120000_matching_histories.sql
+ * and 20260515120000_matching_histories_analysis_json.sql).
  * Bundled for the history page “表未创建”提示区。
  */
 export const MATCHING_HISTORIES_DDL = `-- matching_histories: AI 优化历史快照
@@ -47,4 +48,13 @@ create policy matching_histories_delete_own
   on public.matching_histories for delete
   to authenticated
   using (user_id = auth.uid());
+`
+
+/** Run when matching_histories exists but analysis_json column is missing */
+export const MATCHING_HISTORIES_ANALYSIS_JSON_DDL = `-- Add structured analysis for history replay
+alter table public.matching_histories
+  add column if not exists analysis_json jsonb;
+
+comment on column public.matching_histories.analysis_json is
+  'Structured match analysis: score_summary, gap_items, changes, optimized_content_plain';
 `

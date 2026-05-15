@@ -11,8 +11,12 @@ create table if not exists public.matching_histories (
   score integer not null default 0 check (score >= 0 and score <= 100),
   raw_text_snapshot text not null default '',
   optimized_text_snapshot text not null default '',
+  analysis_json jsonb,
   created_at timestamptz not null default now()
 );
+
+comment on column public.matching_histories.analysis_json is
+  'Structured match analysis: score_summary, gap_items, changes, optimized_content_plain';
 
 comment on table public.matching_histories is 'Per-user AI resume optimization snapshots for history UI';
 
