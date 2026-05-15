@@ -9,6 +9,9 @@ import { MatchSummaryCompact } from "@/components/match-summary-compact"
 import { MatchChangesSummary } from "@/components/match-changes-summary"
 import { DiffToolbar } from "@/components/diff-toolbar"
 import { getOptimizedTextForDiff } from "@/lib/match-analysis"
+import { scrollToDiffSection, scrollToKeywordInDiff } from "@/lib/diff-navigation"
+import { SuggestionRefinePanel } from "@/components/suggestion-refine-panel"
+import type { AnalysisResultWithMeta } from "@/components/match-result-actions"
 import type { MatchChangeItem, MatchGapItem } from "@/types/matching-history-analysis"
 import ReactMarkdown from "react-markdown"
 import {
@@ -38,7 +41,7 @@ export interface AnalysisResult {
 }
 
 interface AnalysisPanelProps {
-  result: AnalysisResult | null
+  result: AnalysisResult | AnalysisResultWithMeta | null
   isAnalyzing: boolean
 }
 
@@ -117,20 +120,43 @@ export function AnalysisPanel({ result, isAnalyzing }: AnalysisPanelProps) {
     setDiffTab("section-diff")
     setOnlyChangedSections(true)
     requestAnimationFrame(() => {
-      const el = document.querySelector(
-        `[data-diff-section="${CSS.escape(change.section)}"]`,
-      )
-      el?.scrollIntoView({ behavior: "smooth", block: "start" })
+      scrollToDiffSection(change.section, '[data-diff-panel-root="true"]')
     })
   }
+
+  const handleKeywordClick = (keyword: string) => {
+    setDiffTab("section-diff")
+    setOnlyChangedSections(false)
+    requestAnimationFrame(() => {
+      const ok = scrollToKeywordInDiff(
+        keyword,
+        result.originalContent,
+        optimizedForDiff,
+        '[data-diff-panel-root="true"]',
+      )
+      if (!ok) {
+        scrollToDiffSection("简历内容", '[data-diff-panel-root="true"]')
+      }
+    })
+  }
+
+  const suggestionItems = result.suggestions.flatMap((s) => s.items)
+  const meta = result as AnalysisResultWithMeta
 
   return (
     <div className="flex h-full min-h-[min(70vh,800px)] flex-col gap-4 lg:flex-row lg:gap-6">
       <div className="shrink-0 lg:w-[min(100%,280px)] lg:max-w-xs">
-        <MatchSummaryCompact result={result} />
+        <MatchSummaryCompact result={result} onKeywordClick={handleKeywordClick} />
+        {suggestionItems.length > 0 ? (
+          <SuggestionRefinePanel
+            suggestions={suggestionItems}
+            resumeId={meta.resumeId}
+            targetJob={meta.targetJob}
+          />
+        ) : null}
       </div>
 
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3" data-diff-panel-root="true">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h2 className="text-base font-semibold text-foreground">简历 Diff 对比</h2>

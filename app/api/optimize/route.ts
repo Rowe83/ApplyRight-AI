@@ -12,6 +12,8 @@ type OptimizePayload = {
   jd_id?: string
   resumeId?: string
   jdText?: string
+  focus_suggestions?: string[]
+  focusSuggestions?: string[]
 }
 
 type OptimizeAiResult = {
@@ -127,8 +129,16 @@ const normalizeResult = (raw: unknown): OptimizeAiResult => {
   }
 }
 
-const callAi = async (resumeText: string, jdText: string) => {
-  const userPrompt = `【简历原文】\n${resumeText}\n\n【职位JD原文】\n${jdText}`
+const callAi = async (
+  resumeText: string,
+  jdText: string,
+  focusSuggestions: string[] = [],
+) => {
+  const focusBlock =
+    focusSuggestions.length > 0
+      ? `\n\n【用户指定需重点落实的优化建议（请在 optimized_content 与 changes 中体现）】\n${focusSuggestions.map((s, i) => `${i + 1}. ${s}`).join("\n")}`
+      : ""
+  const userPrompt = `【简历原文】\n${resumeText}\n\n【职位JD原文】\n${jdText}${focusBlock}`
   const completion = await openai.chat.completions.create({
     model: "deepseek-chat",
     temperature: 0.4,
@@ -207,6 +217,11 @@ export async function POST(req: NextRequest) {
     const resumeId = payload.resume_id?.trim() || payload.resumeId?.trim()
     const jdId = payload.jd_id?.trim()
     const jdTextFromPayload = payload.jdText?.trim()
+    const focusSuggestions = Array.isArray(payload.focus_suggestions)
+      ? payload.focus_suggestions.filter(Boolean).map(String).slice(0, 8)
+      : Array.isArray(payload.focusSuggestions)
+        ? payload.focusSuggestions.filter(Boolean).map(String).slice(0, 8)
+        : []
 
     if (!resumeId || (!jdId && !jdTextFromPayload)) {
       return NextResponse.json(
@@ -293,7 +308,7 @@ export async function POST(req: NextRequest) {
 
     let aiResult: OptimizeAiResult
     try {
-      aiResult = await callAi(resumeText, jdText)
+      aiResult = await callAi(resumeText, jdText, focusSuggestions)
     } catch (aiErr) {
       await refundOptimizeCredit(adminClient, userId)
       reservedCredit = false
@@ -405,6 +420,7 @@ export async function POST(req: NextRequest) {
       remaining_credits: remainingAfterReserve,
       match_id: insertedMatch.id,
       history_id: historyId,
+      resume_id: resume.id,
       resume_title: resumeTitle,
       target_job: targetJob,
     })

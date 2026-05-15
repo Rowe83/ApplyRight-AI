@@ -10,15 +10,7 @@ import { formatMatchScoreDisplay } from "@/lib/format-score"
 import { MATCHING_HISTORIES_DDL } from "@/lib/matching-histories-ddl"
 import { parseHistoryFetchError } from "@/lib/matching-history-fetch-errors"
 import type { MatchingHistoryRow } from "@/types/matching-history"
-import { ResumeDiffView } from "@/components/resume-diff-view"
 import { HistoryTableSkeleton } from "@/components/dashboard-skeletons"
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
 import {
   Empty,
@@ -76,9 +68,6 @@ export default function MatchingHistoryPage() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [loadErrorDetail, setLoadErrorDetail] = useState<string | null>(null)
   const [missingTableHint, setMissingTableHint] = useState(false)
-  const [sheetOpen, setSheetOpen] = useState(false)
-  const [activeRow, setActiveRow] = useState<MatchingHistoryRow | null>(null)
-
   const fetchPage = useCallback(async () => {
     setIsLoading(true)
     setLoadError(null)
@@ -162,18 +151,6 @@ export default function MatchingHistoryPage() {
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
   const canPrev = page > 0
   const canNext = page < totalPages - 1
-
-  const handleOpenSnapshot = (row: MatchingHistoryRow) => {
-    setActiveRow(row)
-    setSheetOpen(true)
-  }
-
-  const handleSheetOpenChange = (open: boolean) => {
-    setSheetOpen(open)
-    if (!open) {
-      setActiveRow(null)
-    }
-  }
 
   return (
     <div className="flex min-h-0 min-w-0 flex-col gap-6">
@@ -332,10 +309,14 @@ export default function MatchingHistoryPage() {
                           size="sm"
                           variant="outline"
                           className="border-slate-700 bg-slate-900/80 text-slate-100 hover:bg-slate-800"
-                          onClick={() => handleOpenSnapshot(row)}
-                          aria-label={`查看 ${row.resume_title ?? "简历"} 的对比快照`}
+                          asChild
                         >
-                          查看对比快照
+                          <Link
+                            href={`/dashboard/match-result?historyId=${encodeURIComponent(row.id)}`}
+                            aria-label={`查看 ${row.resume_title ?? "简历"} 的完整匹配结果`}
+                          >
+                            查看完整结果
+                          </Link>
                         </Button>
                       </td>
                     </tr>
@@ -381,31 +362,6 @@ export default function MatchingHistoryPage() {
         )}
       </div>
 
-      <Sheet open={sheetOpen} onOpenChange={handleSheetOpenChange}>
-        <SheetContent
-          side="right"
-          className="flex w-full max-w-none flex-col gap-0 border-l border-slate-800 bg-slate-950 p-0 sm:max-w-[min(96vw,1400px)]"
-        >
-          <SheetHeader className="border-b border-slate-800 px-6 py-4 text-left">
-            <SheetTitle className="text-base text-slate-100">对比快照复盘</SheetTitle>
-            <SheetDescription className="text-slate-400">
-              {activeRow
-                ? `${formatCompactLocalDateTime(activeRow.created_at)} · ${activeRow.resume_title?.trim() || "简历"} · ${activeRow.target_job?.trim() || "岗位"}`
-                : ""}
-            </SheetDescription>
-          </SheetHeader>
-          <div className="scrollbar-dark min-h-0 flex-1 overflow-hidden border-t border-slate-800/80">
-            {activeRow ? (
-              <ResumeDiffView
-                rawText={activeRow.raw_text_snapshot ?? ""}
-                optimizedText={activeRow.optimized_text_snapshot ?? ""}
-                mode="lines"
-                appearance="dark"
-              />
-            ) : null}
-          </div>
-        </SheetContent>
-      </Sheet>
     </div>
   )
 }

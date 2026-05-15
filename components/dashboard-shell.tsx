@@ -11,6 +11,8 @@ import { dispatchCreditsChanged } from "@/lib/credits-events"
 import { formatMatchScoreDisplay } from "@/lib/format-score"
 import { apiPayloadToAnalysisResult } from "@/lib/match-analysis"
 import { persistMatchAnalysisResult } from "@/lib/match-result-storage"
+import { clearRefineSuggestions, readRefineSuggestions } from "@/lib/refine-suggestions-storage"
+import type { AnalysisResultWithMeta } from "@/components/match-result-actions"
 
 export type ResumeIdSearchParamKey = "resumeId" | "id"
 
@@ -93,6 +95,9 @@ const DashboardPageBody = ({ resumeIdSearchParam }: DashboardPageBodyProps) => {
   const handleAnalyze = async (payload: { resumeId: string; jdText: string }) => {
     setIsAnalyzing(true)
 
+    const refinePayload = readRefineSuggestions()
+    const focusSuggestions = refinePayload?.items?.filter(Boolean).slice(0, 8) ?? []
+
     try {
       const {
         data: { session },
@@ -121,6 +126,7 @@ const DashboardPageBody = ({ resumeIdSearchParam }: DashboardPageBodyProps) => {
         body: JSON.stringify({
           resumeId: payload.resumeId,
           jdText: payload.jdText,
+          ...(focusSuggestions.length > 0 ? { focus_suggestions: focusSuggestions } : {}),
         }),
       })
 
@@ -144,6 +150,7 @@ const DashboardPageBody = ({ resumeIdSearchParam }: DashboardPageBodyProps) => {
         changes?: { section: string; type: "rewrite" | "add" | "remove"; summary: string }[]
         optimized_content_plain?: string
         history_id?: string | null
+        resume_id?: string
         resume_title?: string
         target_job?: string
       }
@@ -163,9 +170,17 @@ const DashboardPageBody = ({ resumeIdSearchParam }: DashboardPageBodyProps) => {
       }
 
       const nextResult = apiPayloadToAnalysisResult(data)
+      const resultWithMeta: AnalysisResultWithMeta = {
+        ...nextResult,
+        historyId: data.history_id ?? undefined,
+        resumeId: data.resume_id ?? payload.resumeId,
+        resumeTitle: data.resume_title ?? null,
+        targetJob: data.target_job ?? null,
+      }
 
-      setAnalysisResult(nextResult)
-      persistMatchAnalysisResult(nextResult)
+      setAnalysisResult(resultWithMeta)
+      persistMatchAnalysisResult(resultWithMeta)
+      clearRefineSuggestions()
 
       const resultHref = data.history_id
         ? `/dashboard/match-result?historyId=${encodeURIComponent(data.history_id)}`

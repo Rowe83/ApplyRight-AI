@@ -1,9 +1,10 @@
 import type { AnalysisResult } from "@/components/analysis-panel"
+import type { AnalysisResultWithMeta } from "@/components/match-result-actions"
 import type { MatchChangeItem, MatchGapItem } from "@/types/matching-history-analysis"
 
 export const MATCH_RESULT_SESSION_KEY = "applyright:v1:lastMatchAnalysis"
 
-export const persistMatchAnalysisResult = (result: AnalysisResult) => {
+export const persistMatchAnalysisResult = (result: AnalysisResult | AnalysisResultWithMeta) => {
   if (typeof window === "undefined") {
     return
   }
@@ -59,7 +60,7 @@ const parseChanges = (raw: unknown): MatchChangeItem[] | undefined => {
   return items.length ? items : undefined
 }
 
-export const readMatchAnalysisResult = (): AnalysisResult | null => {
+export const readMatchAnalysisResult = (): AnalysisResultWithMeta | null => {
   if (typeof window === "undefined") {
     return null
   }
@@ -82,6 +83,7 @@ export const readMatchAnalysisResult = (): AnalysisResult | null => {
     ) {
       return null
     }
+    const meta = data as Partial<AnalysisResultWithMeta>
     return {
       matchScore: data.matchScore,
       strengths: data.strengths,
@@ -95,6 +97,12 @@ export const readMatchAnalysisResult = (): AnalysisResult | null => {
       scoreSummary: typeof data.scoreSummary === "string" ? data.scoreSummary : undefined,
       gapItems: data.gapItems ?? parseGapItems((data as { gap_items?: unknown }).gap_items),
       changes: data.changes ?? parseChanges((data as { changes?: unknown }).changes),
+      historyId: typeof meta.historyId === "string" ? meta.historyId : undefined,
+      resumeId: typeof meta.resumeId === "string" ? meta.resumeId : meta.resumeId === null ? null : undefined,
+      resumeTitle:
+        typeof meta.resumeTitle === "string" ? meta.resumeTitle : meta.resumeTitle === null ? null : undefined,
+      targetJob:
+        typeof meta.targetJob === "string" ? meta.targetJob : meta.targetJob === null ? null : undefined,
     }
   } catch {
     return null

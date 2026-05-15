@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useCallback, useEffect } from "react"
+import { useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -9,6 +10,7 @@ import { Upload, FileText, X, Sparkles, Loader2, Library } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { supabase } from "@/lib/supabase"
 import { extractPdfTextFromFile } from "@/lib/extract-pdf-text"
+import { readRefineSuggestions, type RefineSuggestionsPayload } from "@/lib/refine-suggestions-storage"
 
 interface UploadPanelProps {
   onAnalyze: (payload: { resumeId: string; jdText: string }) => void
@@ -21,15 +23,33 @@ const buildResumeStoragePath = (userId: string) =>
   `${userId}/${Date.now()}_${crypto.randomUUID()}.pdf`
 
 export const UploadPanel = ({ onAnalyze, isAnalyzing, preloadedResume }: UploadPanelProps) => {
+  const searchParams = useSearchParams()
   const [resumeFile, setResumeFile] = useState<File | null>(null)
   const [jobDescription, setJobDescription] = useState("")
   const [isDragging, setIsDragging] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
   const [preloadedDismissed, setPreloadedDismissed] = useState(false)
+  const [refineHints, setRefineHints] = useState<RefineSuggestionsPayload | null>(null)
 
   useEffect(() => {
     setPreloadedDismissed(false)
   }, [preloadedResume?.id])
+
+  useEffect(() => {
+    if (searchParams.get("refine") !== "1") {
+      setRefineHints(null)
+      return
+    }
+    const stored = readRefineSuggestions()
+    if (!stored) {
+      setRefineHints(null)
+      return
+    }
+    setRefineHints(stored)
+    if (stored.targetJob?.trim()) {
+      setJobDescription((prev) => (prev.trim() ? prev : stored.targetJob!.trim()))
+    }
+  }, [searchParams])
 
   const libraryResumeActive = Boolean(
     preloadedResume && !preloadedDismissed && !resumeFile
@@ -177,8 +197,31 @@ export const UploadPanel = ({ onAnalyze, isAnalyzing, preloadedResume }: UploadP
   const canAnalyze =
     Boolean(jobDescription.trim()) && (Boolean(resumeFile) || libraryResumeActive)
 
+  const refineItemCount = refineHints?.items.length ?? 0
+
   return (
     <div className="flex h-full flex-col gap-4">
+      {refineItemCount > 0 ? (
+        <div
+          className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm"
+          role="status"
+          aria-label="定向优化提示"
+        >
+          <p className="font-medium text-primary">定向再分析</p>
+          <p className="mt-1 text-muted-foreground">
+            已带入 {refineItemCount} 条选中建议，点击「分析并优化」将优先围绕这些点改写简历。
+          </p>
+          <ul className="mt-2 list-inside list-disc space-y-0.5 text-xs text-muted-foreground">
+            {refineHints!.items.slice(0, 4).map((item) => (
+              <li key={item} className="truncate">
+                {item}
+              </li>
+            ))}
+            {refineItemCount > 4 ? <li>…另有 {refineItemCount - 4} 条</li> : null}
+          </ul>
+        </div>
+      ) : null}
+
       <Card className="border-border bg-card">
         <CardHeader className="pb-3">
           <CardTitle className="text-base">上传简历</CardTitle>

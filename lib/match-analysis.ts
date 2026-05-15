@@ -197,3 +197,20 @@ export const matchingHistoryRowToResult = (row: MatchingHistoryRow): AnalysisRes
 
 export const getOptimizedTextForDiff = (result: AnalysisResult): string =>
   result.optimizedContentPlain?.trim() || result.optimizedContent
+
+const sanitizeFilenamePart = (value: string, maxLen = 48) =>
+  value
+    .replace(/[<>:"/\\|?*\x00-\x1f]/g, "")
+    .replace(/\s+/g, "_")
+    .slice(0, maxLen)
+    .replace(/^_+|_+$/g, "") || "resume"
+
+export const buildSaveAsResumeFilename = (
+  resumeTitle?: string | null,
+  targetJob?: string | null,
+) => {
+  const titlePart = sanitizeFilenamePart(resumeTitle?.trim() || "优化简历", 40)
+  const jobPart = targetJob?.trim() ? sanitizeFilenamePart(targetJob.trim(), 32) : ""
+  const composed = jobPart ? `${titlePart}_${jobPart}_optimized` : `${titlePart}_optimized`
+  return `${composed}.md`.slice(0, 2048)
+}

@@ -16,9 +16,10 @@ import { cn } from "@/lib/utils"
 
 type MatchSummaryCompactProps = {
   result: AnalysisResult
+  onKeywordClick?: (keyword: string) => void
 }
 
-export const MatchSummaryCompact = ({ result }: MatchSummaryCompactProps) => {
+export const MatchSummaryCompact = ({ result, onKeywordClick }: MatchSummaryCompactProps) => {
   const [expanded, setExpanded] = useState(false)
   const scoreLabel = formatMatchScoreDisplay(result.matchScore)
 
@@ -97,12 +98,23 @@ export const MatchSummaryCompact = ({ result }: MatchSummaryCompactProps) => {
             {gapItems.slice(0, expanded ? 10 : 5).map((item, i) => (
               <li key={i} className="text-xs text-muted-foreground">
                 {item.keyword ? (
-                  <Badge
-                    variant="outline"
-                    className="mb-1 border-amber-500/30 bg-amber-500/10 text-[10px] text-amber-700 dark:text-amber-300"
-                  >
-                    {item.keyword}
-                  </Badge>
+                  onKeywordClick ? (
+                    <button
+                      type="button"
+                      onClick={() => onKeywordClick(item.keyword!)}
+                      className="mb-1 inline-flex rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-700 transition-colors hover:bg-amber-500/20 dark:text-amber-300"
+                      aria-label={`在 Diff 中定位关键词：${item.keyword}`}
+                    >
+                      {item.keyword}
+                    </button>
+                  ) : (
+                    <Badge
+                      variant="outline"
+                      className="mb-1 border-amber-500/30 bg-amber-500/10 text-[10px] text-amber-700 dark:text-amber-300"
+                    >
+                      {item.keyword}
+                    </Badge>
+                  )
                 ) : null}
                 <p className="leading-relaxed">{item.text}</p>
               </li>
