@@ -21,6 +21,7 @@ import {
   Coins,
   Settings,
   Sparkles,
+  GitCompare,
 } from "lucide-react"
 
 const navItems = [
@@ -38,6 +39,11 @@ const navItems = [
     title: "简历库",
     icon: FolderArchive,
     href: "/dashboard/templates",
+  },
+  {
+    title: "匹配结果",
+    icon: GitCompare,
+    href: "/dashboard/match-result",
   },
   {
     title: "匹配历史",

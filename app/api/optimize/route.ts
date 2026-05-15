@@ -3,6 +3,9 @@ import { createClient } from "@supabase/supabase-js"
 import { createServerClient } from "@supabase/auth-helpers-nextjs"
 import { cookies } from "next/headers"
 import { openai } from "@/lib/openai"
+import { buildAnalysisJson, normalizeChanges, normalizeGapItems } from "@/lib/match-analysis"
+import { toPlainResumeText } from "@/lib/plain-resume-text"
+import { refundOptimizeCredit, tryReserveOptimizeCredit } from "@/lib/optimize-credits"
 
 type OptimizePayload = {
   resume_id?: string
@@ -13,11 +16,15 @@ type OptimizePayload = {
 
 type OptimizeAiResult = {
   match_score: number
+  score_summary: string
   strengths: string[]
   weaknesses: string[]
   missing_keywords: string[]
+  gap_items: { keyword?: string; reason: string }[]
   core_suggestions: string[]
+  changes: { section: string; type: "rewrite" | "add" | "remove"; summary: string }[]
   optimized_content: string
+  optimized_content_plain: string
 }
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -31,7 +38,7 @@ const insufficientCreditsResponse = () =>
   )
 
 const systemPrompt =
-  "你是一位技术专家级猎头。请根据提供的简历和JD，输出一份深度分析。必须严格返回 JSON，不要输出任何额外文本。JSON结构必须为：{\"match_score\": 65, \"strengths\": [\"...\"], \"weaknesses\": [\"...\"], \"missing_keywords\": [\"...\"], \"core_suggestions\": [\"...\"], \"optimized_content\": \"Markdown格式的完整润色简历...\", \"remaining_credits\": 2}。要求：match_score 为 0-100 数字；strengths/weaknesses/missing_keywords/core_suggestions 都必须是字符串数组；optimized_content 必须是 Markdown 格式并使用 STAR 原则，且保留原简历真实性，仅优化专业表达。remaining_credits 字段必须保留为数字占位。"
+  '你是一位技术专家级猎头。请根据提供的简历和JD，输出深度分析。必须严格返回 JSON，不要输出任何额外文本。JSON 结构：{"match_score":65,"score_summary":"一句话说明主要失分或亮点","strengths":["…"],"weaknesses":["…"],"missing_keywords":["…"],"gap_items":[{"keyword":"K8s","reason":"JD要求但简历未体现"}],"core_suggestions":["…"],"changes":[{"section":"工作经历","type":"rewrite","summary":"补充量化指标"}],"optimized_content":"Markdown完整润色简历","optimized_content_plain":"与optimized_content语义相同但无Markdown符号的纯文本","remaining_credits":2}。要求：match_score 为 0-100；gap_items 3-8 条；changes 3-8 条且 type 只能是 rewrite/add/remove；optimized_content 用 Markdown+STAR；optimized_content_plain 为纯文本；保留真实性；remaining_credits 为数字占位。'
 
 const extractJson = (text: string) => {
   const fencedMatch = text.match(/```json\s*([\s\S]*?)```/i)
@@ -46,7 +53,7 @@ const extractJson = (text: string) => {
 }
 
 const normalizeResult = (raw: unknown): OptimizeAiResult => {
-  const data = raw as Partial<OptimizeAiResult>
+  const data = raw as Partial<OptimizeAiResult> & Record<string, unknown>
   const score = Number(data.match_score)
   const strengths = Array.isArray(data.strengths)
     ? data.strengths
@@ -73,6 +80,19 @@ const normalizeResult = (raw: unknown): OptimizeAiResult => {
         .slice(0, 5)
     : []
   const optimizedContent = String(data.optimized_content ?? "").trim()
+  const optimizedPlainFromAi = String(data.optimized_content_plain ?? "").trim()
+  const optimizedContentPlain =
+    optimizedPlainFromAi || toPlainResumeText(optimizedContent)
+
+  const gapItems = normalizeGapItems(data.gap_items, missingKeywords)
+  const changes = normalizeChanges(data.changes)
+
+  const scoreSummary =
+    String(data.score_summary ?? "").trim() ||
+    weaknesses[0] ||
+    (missingKeywords.length > 0
+      ? `主要缺口：${missingKeywords.slice(0, 3).join("、")}`
+      : "已完成简历与岗位匹配分析")
 
   if (!Number.isFinite(score)) {
     throw new Error("AI 返回的 match_score 无效")
@@ -95,11 +115,15 @@ const normalizeResult = (raw: unknown): OptimizeAiResult => {
 
   return {
     match_score: Math.max(0, Math.min(100, Math.round(score))),
+    score_summary: scoreSummary,
     strengths,
     weaknesses,
     missing_keywords: missingKeywords,
+    gap_items: gapItems,
     core_suggestions: coreSuggestions,
+    changes,
     optimized_content: optimizedContent,
+    optimized_content_plain: optimizedContentPlain,
   }
 }
 
@@ -251,37 +275,27 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Atomic pre-check + hold 1 credit before any LLM call (avoids concurrent double-spend / token abuse)
-    const { data: reservedBalance, error: reserveError } = await adminClient.rpc(
-      "try_reserve_optimize_credit",
-      { p_user_id: userId },
-    )
+    const reserve = await tryReserveOptimizeCredit(adminClient, userId)
 
-    if (reserveError) {
-      console.error("try_reserve_optimize_credit failed:", reserveError)
+    if (!reserve.ok) {
+      if (reserve.reason === "insufficient") {
+        return insufficientCreditsResponse()
+      }
+      console.error("try_reserve_optimize_credit failed:", reserve.message)
       return NextResponse.json(
         { error: "Failed to verify credits", code: "CREDITS_CHECK_FAILED" },
         { status: 500 },
       )
     }
 
-    if (reservedBalance === null || reservedBalance === undefined) {
-      return insufficientCreditsResponse()
-    }
-
-    const remainingAfterReserve =
-      typeof reservedBalance === "number" ? reservedBalance : Number(reservedBalance)
-    if (!Number.isFinite(remainingAfterReserve)) {
-      return insufficientCreditsResponse()
-    }
-
+    const remainingAfterReserve = reserve.remaining
     reservedCredit = true
 
     let aiResult: OptimizeAiResult
     try {
       aiResult = await callAi(resumeText, jdText)
     } catch (aiErr) {
-      await adminClient.rpc("refund_optimize_credit", { p_user_id: userId })
+      await refundOptimizeCredit(adminClient, userId)
       reservedCredit = false
       const message = aiErr instanceof Error ? aiErr.message : "AI 调用失败"
       return NextResponse.json({ error: message }, { status: 500 })
@@ -300,7 +314,7 @@ export async function POST(req: NextRequest) {
       .single<{ id: string }>()
 
     if (insertMatchError || !insertedMatch) {
-      await adminClient.rpc("refund_optimize_credit", { p_user_id: userId })
+      await refundOptimizeCredit(adminClient, userId)
       reservedCredit = false
       return NextResponse.json(
         { error: "Failed to save optimize result" },
@@ -329,7 +343,19 @@ export async function POST(req: NextRequest) {
         .find((line) => line.length > 0) ||
       "未命名岗位"
 
-    const { error: historyError } = await adminClient.from("matching_histories").insert({
+    const analysisJson = buildAnalysisJson({
+      match_score: aiResult.match_score,
+      score_summary: aiResult.score_summary,
+      strengths: aiResult.strengths,
+      weaknesses: aiResult.weaknesses,
+      missing_keywords: aiResult.missing_keywords,
+      core_suggestions: aiResult.core_suggestions,
+      gap_items: aiResult.gap_items,
+      changes: aiResult.changes,
+      optimized_content_plain: aiResult.optimized_content_plain,
+    })
+
+    const historyBase = {
       user_id: userId,
       resume_id: resume.id,
       resume_title: resumeTitle,
@@ -337,29 +363,54 @@ export async function POST(req: NextRequest) {
       score: aiResult.match_score,
       raw_text_snapshot: resumeText,
       optimized_text_snapshot: aiResult.optimized_content,
-    })
+    }
 
-    if (historyError) {
-      console.error("matching_histories insert failed:", historyError)
+    let historyId: string | null = null
+    const withAnalysis = await adminClient
+      .from("matching_histories")
+      .insert({ ...historyBase, analysis_json: analysisJson })
+      .select("id")
+      .single<{ id: string }>()
+
+    if (!withAnalysis.error && withAnalysis.data) {
+      historyId = withAnalysis.data.id
+    } else {
+      const fallback = await adminClient
+        .from("matching_histories")
+        .insert(historyBase)
+        .select("id")
+        .single<{ id: string }>()
+      if (fallback.error) {
+        console.error("matching_histories insert failed:", withAnalysis.error, fallback.error)
+      } else {
+        historyId = fallback.data?.id ?? null
+      }
     }
 
     reservedCredit = false
 
     return NextResponse.json({
       match_score: aiResult.match_score,
+      score_summary: aiResult.score_summary,
       strengths: aiResult.strengths,
       weaknesses: aiResult.weaknesses,
       missing_keywords: aiResult.missing_keywords,
+      gap_items: aiResult.gap_items,
+      changes: aiResult.changes,
       core_suggestions: aiResult.core_suggestions,
       suggestions: aiResult.core_suggestions,
       original_content: resumeText,
       optimized_content: aiResult.optimized_content,
+      optimized_content_plain: aiResult.optimized_content_plain,
       remaining_credits: remainingAfterReserve,
       match_id: insertedMatch.id,
+      history_id: historyId,
+      resume_title: resumeTitle,
+      target_job: targetJob,
     })
   } catch (error) {
     if (reservedCredit && adminClient && userIdForRefund) {
-      await adminClient.rpc("refund_optimize_credit", { p_user_id: userIdForRefund })
+      await refundOptimizeCredit(adminClient, userIdForRefund)
     }
     const message = error instanceof Error ? error.message : "Unexpected server error"
     return NextResponse.json({ error: message }, { status: 500 })

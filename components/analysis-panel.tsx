@@ -1,28 +1,23 @@
 "use client"
 
-import { useState } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { useMemo, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion"
-import { MatchScoreGauge } from "@/components/match-score-gauge"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { ResumeDiffView } from "@/components/resume-diff-view"
+import { ResumeDiffView, useResumeDiffStats } from "@/components/resume-diff-view"
+import { MatchSummaryCompact } from "@/components/match-summary-compact"
+import { MatchChangesSummary } from "@/components/match-changes-summary"
+import { DiffToolbar } from "@/components/diff-toolbar"
+import { getOptimizedTextForDiff } from "@/lib/match-analysis"
+import type { MatchChangeItem, MatchGapItem } from "@/types/matching-history-analysis"
 import ReactMarkdown from "react-markdown"
 import {
-  TrendingUp,
-  TrendingDown,
-  AlertCircle,
-  Lightbulb,
   FileText,
-  CheckCircle2,
   Copy,
-  Check
+  Check,
+  GitCompare,
+  ListTree,
+  Sparkles,
 } from "lucide-react"
 
 export interface AnalysisResult {
@@ -36,6 +31,10 @@ export interface AnalysisResult {
   }[]
   originalContent: string
   optimizedContent: string
+  optimizedContentPlain?: string
+  scoreSummary?: string
+  gapItems?: MatchGapItem[]
+  changes?: MatchChangeItem[]
 }
 
 interface AnalysisPanelProps {
@@ -43,16 +42,31 @@ interface AnalysisPanelProps {
   isAnalyzing: boolean
 }
 
+type DiffTab = "section-diff" | "line-diff" | "original" | "optimized"
+
 export function AnalysisPanel({ result, isAnalyzing }: AnalysisPanelProps) {
   const [copied, setCopied] = useState(false)
-  const displayBody = result
-    ? typeof (result.originalContent as unknown) === "string"
-      ? result.originalContent.replace(/\\n/g, "\n")
-      : JSON.stringify(result.originalContent, null, 2)
-    : ""
+  const [diffTab, setDiffTab] = useState<DiffTab>("section-diff")
+  const [syncScroll, setSyncScroll] = useState(true)
+  const [onlyChangedSections, setOnlyChangedSections] = useState(true)
+
+  const diffStats = useResumeDiffStats(
+    result?.originalContent ?? "",
+    result ? getOptimizedTextForDiff(result) : "",
+    true,
+  )
+
+  const displayBody = useMemo(() => {
+    if (!result) {
+      return ""
+    }
+    return result.originalContent.replace(/\\n/g, "\n")
+  }, [result])
 
   const handleCopyOriginal = async () => {
-    if (!result?.originalContent) return
+    if (!result?.originalContent) {
+      return
+    }
     try {
       await navigator.clipboard.writeText(result.originalContent)
       setCopied(true)
@@ -95,168 +109,142 @@ export function AnalysisPanel({ result, isAnalyzing }: AnalysisPanelProps) {
     )
   }
 
-  return (
-    <ScrollArea className="h-full">
-      <div className="flex flex-col gap-6 pr-4">
-        {/* Score and Summary Section */}
-        <div className="grid gap-6 lg:grid-cols-[auto_1fr]">
-          <Card className="border-border bg-card">
-            <CardContent className="flex items-center justify-center p-6">
-              <MatchScoreGauge score={result.matchScore} />
-            </CardContent>
-          </Card>
+  const diffMode = diffTab === "line-diff" ? "lines" : "sections"
+  const optimizedForDiff = getOptimizedTextForDiff(result)
+  const optimizedPlainOverride = result.optimizedContentPlain?.trim() || undefined
 
-          <Card className="border-border bg-card">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">快速摘要</CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-6 md:grid-cols-2">
-              <div className="space-y-3">
-                <div className="flex items-center gap-2 text-sm font-medium text-emerald-500">
-                  <TrendingUp className="h-4 w-4" />
-                  <span>优势亮点</span>
-                </div>
-                <ul className="space-y-2">
-                  {result.strengths.map((strength, index) => (
-                    <li key={index} className="flex items-start gap-2 text-sm">
-                      <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" />
-                      <span>{strength}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              <div className="space-y-3">
-                <div className="flex items-center gap-2 text-sm font-medium text-amber-500">
-                  <TrendingDown className="h-4 w-4" />
-                  <span>待改进项</span>
-                </div>
-                <ul className="space-y-2">
-                  {result.weaknesses.map((weakness, index) => (
-                    <li key={index} className="flex items-start gap-2 text-sm">
-                      <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
-                      <span>{weakness}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </CardContent>
-          </Card>
+  const handleSelectChange = (change: MatchChangeItem) => {
+    setDiffTab("section-diff")
+    setOnlyChangedSections(true)
+    requestAnimationFrame(() => {
+      const el = document.querySelector(
+        `[data-diff-section="${CSS.escape(change.section)}"]`,
+      )
+      el?.scrollIntoView({ behavior: "smooth", block: "start" })
+    })
+  }
+
+  return (
+    <div className="flex h-full min-h-[min(70vh,800px)] flex-col gap-4 lg:flex-row lg:gap-6">
+      <div className="shrink-0 lg:w-[min(100%,280px)] lg:max-w-xs">
+        <MatchSummaryCompact result={result} />
+      </div>
+
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-base font-semibold text-foreground">简历 Diff 对比</h2>
+            <p className="text-xs text-muted-foreground">
+              默认章节对照（Plain 文本，已去除 Markdown 符号噪音）
+            </p>
+          </div>
+          <Badge variant="outline" className="text-[10px] font-normal">
+            Diff-first
+          </Badge>
         </div>
 
-        {/* Missing Keywords and Suggestions */}
-        <Card className="border-border bg-card">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">关键词分析与优化建议</CardTitle>
-            <CardDescription>根据职位描述提取的核心关键词和改进建议</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Accordion type="multiple" className="w-full" defaultValue={["keywords", "suggestions"]}>
-              <AccordionItem value="keywords" className="border-border">
-                <AccordionTrigger className="hover:no-underline">
-                  <div className="flex items-center gap-2">
-                    <AlertCircle className="h-4 w-4 text-amber-500" />
-                    <span>缺失的关键词</span>
-                    <Badge variant="secondary" className="ml-2">
-                      {result.missingKeywords.length}
-                    </Badge>
-                  </div>
-                </AccordionTrigger>
-                <AccordionContent>
-                  <div className="flex flex-wrap gap-2 pt-2">
-                    {result.missingKeywords.map((keyword, index) => (
-                      <Badge 
-                        key={index} 
-                        variant="outline" 
-                        className="border-amber-500/30 bg-amber-500/10 text-amber-500"
-                      >
-                        {keyword}
-                      </Badge>
-                    ))}
-                  </div>
-                </AccordionContent>
-              </AccordionItem>
+        {result.changes && result.changes.length > 0 ? (
+          <MatchChangesSummary
+            changes={result.changes}
+            onSelectChange={handleSelectChange}
+          />
+        ) : null}
 
-              <AccordionItem value="suggestions" className="border-border">
-                <AccordionTrigger className="hover:no-underline">
-                  <div className="flex items-center gap-2">
-                    <Lightbulb className="h-4 w-4 text-primary" />
-                    <span>优化建议</span>
-                  </div>
-                </AccordionTrigger>
-                <AccordionContent>
-                  <div className="space-y-4 pt-2">
-                    {result.suggestions.map((suggestion, index) => (
-                      <div key={index} className="space-y-2">
-                        <h4 className="text-sm font-medium">{suggestion.category}</h4>
-                        <ul className="space-y-2">
-                          {suggestion.items.map((item, itemIndex) => (
-                            <li
-                              key={itemIndex}
-                              className="group relative flex items-center gap-3 space-x-3 overflow-hidden rounded-xl bg-slate-900/60 p-3 shadow-sm backdrop-blur-sm transition-all duration-200 hover:bg-slate-900/80 border border-slate-800/80 hover:border-slate-700"
-                            >
-                              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-blue-500" />
-                              <span className="flex-1 text-sm font-medium text-slate-200">
-                                {item}
-                              </span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    ))}
-                  </div>
-                </AccordionContent>
-              </AccordionItem>
-            </Accordion>
-          </CardContent>
-        </Card>
+        <DiffToolbar
+          mode={diffMode}
+          stats={diffStats}
+          syncScroll={syncScroll}
+          onlyChangedSections={onlyChangedSections}
+          usePlainText
+          onSyncScrollChange={setSyncScroll}
+          onOnlyChangedSectionsChange={setOnlyChangedSections}
+        />
 
-        {/* Resume Preview */}
-        <Card className="border-border bg-card">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">简历预览</CardTitle>
-            <CardDescription>查看原始简历与优化后的对比</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Tabs defaultValue="diff" className="w-full">
-              <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger value="diff">🔍 细粒度对比</TabsTrigger>
-                <TabsTrigger value="original">原始版本</TabsTrigger>
-                <TabsTrigger value="optimized">优化版本</TabsTrigger>
-              </TabsList>
-              <TabsContent value="diff" className="mt-4">
-                <div className="min-h-[600px] rounded-lg border border-border bg-slate-50">
-                  <ResumeDiffView
-                    rawText={result.originalContent}
-                    optimizedText={result.optimizedContent}
-                  />
-                </div>
-              </TabsContent>
-              <TabsContent value="original" className="mt-4">
-                <div className="relative min-h-[200px] rounded-lg border border-border bg-muted/30 p-4">
-                  <button
-                    type="button"
-                    onClick={handleCopyOriginal}
-                    className="absolute right-3 top-3 inline-flex h-7 w-7 items-center justify-center rounded-md border border-border/70 bg-background/80 text-muted-foreground transition-colors hover:text-foreground"
-                    aria-label="复制全文"
-                  >
-                    {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                  </button>
-                  <pre className="max-h-[500px] overflow-y-auto scrollbar-thin whitespace-pre-wrap break-words font-sans text-sm text-muted-foreground pr-2">
-                    {displayBody}
-                  </pre>
-                </div>
-              </TabsContent>
-              <TabsContent value="optimized" className="mt-4">
-                <div className="min-h-[200px] rounded-lg border border-primary/30 bg-primary/5 p-4">
-                  <div className="prose prose-sm max-w-none whitespace-pre-wrap text-sm dark:prose-invert">
-                    <ReactMarkdown>{result.optimizedContent}</ReactMarkdown>
-                  </div>
-                </div>
-              </TabsContent>
-            </Tabs>
-          </CardContent>
-        </Card>
+        <Tabs
+          value={diffTab}
+          onValueChange={(v) => setDiffTab(v as DiffTab)}
+          className="flex min-h-0 flex-1 flex-col"
+        >
+          <TabsList className="grid h-auto w-full shrink-0 grid-cols-2 gap-1.5 sm:grid-cols-4">
+            <TabsTrigger value="section-diff" className="gap-1.5 text-xs sm:text-sm">
+              <ListTree className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" aria-hidden />
+              章节对比
+            </TabsTrigger>
+            <TabsTrigger value="line-diff" className="gap-1.5 text-xs sm:text-sm">
+              <GitCompare className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" aria-hidden />
+              全文 Plain
+            </TabsTrigger>
+            <TabsTrigger value="original" className="gap-1.5 text-xs sm:text-sm">
+              <FileText className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" aria-hidden />
+              原始版本
+            </TabsTrigger>
+            <TabsTrigger value="optimized" className="gap-1.5 text-xs sm:text-sm">
+              <Sparkles className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" aria-hidden />
+              优化版本
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="section-diff" className="mt-3 min-h-0 flex-1 data-[state=inactive]:hidden">
+            <div
+              className="h-[min(65vh,720px)] min-h-[360px] overflow-hidden rounded-lg border border-border bg-slate-50 dark:bg-slate-950/30"
+              role="region"
+              aria-label="按章节 Plain Diff 对比"
+            >
+              <ResumeDiffView
+                mode="sections"
+                rawText={result.originalContent}
+                optimizedText={optimizedForDiff}
+                optimizedPlainText={optimizedPlainOverride}
+                usePlainText
+                onlyChangedSections={onlyChangedSections}
+              />
+            </div>
+          </TabsContent>
+
+          <TabsContent value="line-diff" className="mt-3 min-h-0 flex-1 data-[state=inactive]:hidden">
+            <div
+              className="h-[min(65vh,720px)] min-h-[360px] overflow-hidden rounded-lg border border-border bg-slate-50 dark:bg-slate-950/30"
+              role="region"
+              aria-label="全文 Plain 行级对比"
+            >
+              <ResumeDiffView
+                mode="lines"
+                rawText={result.originalContent}
+                optimizedText={optimizedForDiff}
+                optimizedPlainText={optimizedPlainOverride}
+                usePlainText
+                syncScroll={syncScroll}
+              />
+            </div>
+          </TabsContent>
+
+          <TabsContent value="original" className="mt-3 min-h-0 flex-1 data-[state=inactive]:hidden">
+            <ScrollArea className="h-[min(50vh,480px)] rounded-lg border border-border bg-muted/30">
+              <div className="relative p-4">
+                <button
+                  type="button"
+                  onClick={() => void handleCopyOriginal()}
+                  className="absolute right-3 top-3 inline-flex h-7 w-7 items-center justify-center rounded-md border border-border/70 bg-background/80 text-muted-foreground transition-colors hover:text-foreground"
+                  aria-label="复制全文"
+                >
+                  {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                </button>
+                <pre className="whitespace-pre-wrap break-words pr-10 font-sans text-sm text-muted-foreground">
+                  {displayBody}
+                </pre>
+              </div>
+            </ScrollArea>
+          </TabsContent>
+
+          <TabsContent value="optimized" className="mt-3 min-h-0 flex-1 data-[state=inactive]:hidden">
+            <ScrollArea className="h-[min(50vh,480px)] rounded-lg border border-primary/30 bg-primary/5">
+              <div className="prose prose-sm max-w-none p-4 text-sm dark:prose-invert">
+                <ReactMarkdown>{result.optimizedContent}</ReactMarkdown>
+              </div>
+            </ScrollArea>
+          </TabsContent>
+        </Tabs>
       </div>
-    </ScrollArea>
+    </div>
   )
 }

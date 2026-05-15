@@ -5,14 +5,25 @@ import { toast } from "sonner"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { FileText, Copy, Trash2, ExternalLink, Sparkles, User } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { ResumeWithScore } from "@/types/resume"
 import { formatRelativeTime } from "@/lib/date-utils"
+import { formatMatchScoreDisplay } from "@/lib/format-score"
 
-interface ResumeCardProps {
+type ResumeCardProps = {
   resume: ResumeWithScore
-  onRename: (resumeId: string, newName: string) => Promise<void>
+  onRenameRequest: (resume: ResumeWithScore) => void
   onDelete: (resumeId: string) => Promise<void>
   onCopy: (resumeId: string) => Promise<void>
   onNavigate: (resumeId: string) => void
@@ -22,35 +33,31 @@ const DEFAULT_TARGET_LABEL = "未分类岗位"
 
 export const ResumeCard = ({
   resume,
-  onRename,
+  onRenameRequest,
   onDelete,
   onCopy,
   onNavigate,
 }: ResumeCardProps) => {
   const [isHovered, setIsHovered] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
 
   const lastModifiedSource = resume.updated_at ?? resume.created_at ?? null
   const targetLabel = (resume.target_position?.trim() || DEFAULT_TARGET_LABEL).slice(0, 64)
   const parsedName = resume.parsed_name?.trim()
-  const scoreValue = resume.highest_match_score
-  const showScoreBadge = typeof scoreValue === "number" && Number.isFinite(scoreValue)
+  const scoreLabel = formatMatchScoreDisplay(resume.highest_match_score)
+  const hasScore = scoreLabel !== "--"
 
-  const handleTitleClick = useCallback(() => {
-    const newName = prompt("请输入新的简历名称:", resume.original_filename)
-    if (newName && newName.trim() && newName !== resume.original_filename) {
-      void onRename(resume.id, newName.trim())
-    }
-  }, [resume.id, resume.original_filename, onRename])
+  const handleTitleActivate = useCallback(() => {
+    onRenameRequest(resume)
+  }, [resume, onRenameRequest])
 
-  const handleDeleteClick = useCallback(async () => {
-    const confirmed = confirm("确定要删除这份简历吗？此操作无法撤销。")
-    if (!confirmed) return
-
+  const handleConfirmDelete = useCallback(async () => {
     setIsDeleting(true)
     try {
       await onDelete(resume.id)
       toast.success("简历已删除")
+      setDeleteDialogOpen(false)
     } catch (error) {
       const message = error instanceof Error ? error.message : "删除简历失败"
       toast.error("删除失败", { description: message })
@@ -81,140 +88,161 @@ export const ResumeCard = ({
   }
 
   return (
-    <Card
-      className={cn(
-        "group relative overflow-hidden transition-all duration-200",
-        "border-border bg-card",
-        "hover:border-primary/50 hover:shadow-lg hover:shadow-primary/10 hover:-translate-y-1",
-        "cursor-pointer"
-      )}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-    >
-      <CardContent className="p-6">
-        <div className="mb-4 flex items-start justify-between gap-3">
-          <div className="flex-1 min-w-0">
-            <div
-              className="mb-2 flex items-center gap-2"
-              onClick={handleTitleClick}
-              role="button"
-              tabIndex={0}
-              aria-label="点击重命名简历"
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault()
-                  handleTitleClick()
-                }
-              }}
-              title="点击重命名"
-            >
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-                <FileText className="h-5 w-5 text-primary" />
+    <>
+      <Card
+        className={cn(
+          "group relative overflow-hidden transition-all duration-200",
+          "border-border bg-card",
+          "hover:border-primary/50 hover:shadow-lg hover:shadow-primary/10 hover:-translate-y-1",
+          "cursor-pointer",
+        )}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+      >
+        <CardContent className="p-6">
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <div
+                className="mb-2 flex items-center gap-2"
+                onClick={handleTitleActivate}
+                role="button"
+                tabIndex={0}
+                aria-label="打开重命名简历对话框"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault()
+                    handleTitleActivate()
+                  }
+                }}
+                title="重命名简历"
+              >
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                  <FileText className="h-5 w-5 text-primary" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h3
+                    className={cn(
+                      "truncate font-semibold transition-colors",
+                      "text-foreground group-hover:text-primary",
+                    )}
+                  >
+                    {resume.original_filename}
+                  </h3>
+                  {parsedName ? (
+                    <p className="mt-1 flex items-center gap-1 truncate text-xs text-muted-foreground">
+                      <User className="h-3 w-3 shrink-0" aria-hidden />
+                      <span className="truncate">{parsedName}</span>
+                    </p>
+                  ) : null}
+                </div>
               </div>
-              <div className="min-w-0 flex-1">
-                <h3
-                  className={cn(
-                    "truncate font-semibold transition-colors",
-                    "text-foreground group-hover:text-primary"
-                  )}
-                >
-                  {resume.original_filename}
-                </h3>
-                {parsedName ? (
-                  <p className="mt-1 flex items-center gap-1 truncate text-xs text-muted-foreground">
-                    <User className="h-3 w-3 shrink-0" aria-hidden />
-                    <span className="truncate">{parsedName}</span>
-                  </p>
-                ) : null}
-              </div>
+
+              <Badge
+                variant="outline"
+                className="border-primary/30 bg-primary/10 text-xs text-primary"
+              >
+                {targetLabel}
+              </Badge>
             </div>
 
-            <Badge
-              variant="outline"
-              className="border-primary/30 bg-primary/10 text-primary text-xs"
-            >
-              {targetLabel}
-            </Badge>
-          </div>
-
-          {showScoreBadge ? (
             <Badge
               variant="outline"
               className={cn(
-                "flex items-center gap-1.5 border px-2.5 py-1 text-xs font-medium",
-                getScoreColor(scoreValue as number)
+                "flex shrink-0 items-center gap-1.5 border px-2.5 py-1 text-xs font-medium",
+                hasScore ? getScoreColor(Number(resume.highest_match_score)) : "border-slate-700/80 bg-slate-900/50 text-slate-500",
               )}
             >
               <Sparkles className="h-3 w-3" aria-hidden />
-              {Math.round(scoreValue as number)}%
+              {hasScore ? `${scoreLabel}%` : "--"}
             </Badge>
-          ) : null}
-        </div>
-
-        <div className="mb-4 space-y-2">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <span className="shrink-0">最后修改:</span>
-            <span className="font-medium text-foreground">
-              {formatRelativeTime(lastModifiedSource)}
-            </span>
           </div>
-          {resume.last_match_date ? (
+
+          <div className="mb-4 space-y-2">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <span className="shrink-0">最近分析:</span>
+              <span className="shrink-0">最后修改:</span>
               <span className="font-medium text-foreground">
-                {formatRelativeTime(resume.last_match_date)}
+                {formatRelativeTime(lastModifiedSource)}
               </span>
             </div>
-          ) : null}
-        </div>
+            {resume.last_match_date ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <span className="shrink-0">最近分析:</span>
+                <span className="font-medium text-foreground">
+                  {formatRelativeTime(resume.last_match_date)}
+                </span>
+              </div>
+            ) : null}
+          </div>
 
-        <div
-          className={cn(
-            "absolute inset-x-4 bottom-4 flex gap-2 transition-opacity duration-200",
-            isHovered ? "opacity-100" : "opacity-0 pointer-events-none"
-          )}
-        >
-          <Button
-            variant="outline"
-            size="sm"
-            className="flex-1 bg-background/80 backdrop-blur-sm hover:bg-background"
-            onClick={handleNavigateClick}
-            title="进入优化仪表盘"
-            type="button"
-          >
-            <ExternalLink className="mr-2 h-4 w-4" aria-hidden />
-            优化仪表盘
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="bg-background/80 backdrop-blur-sm hover:bg-background"
-            onClick={handleCopyClick}
-            title="复制简历内容"
-            type="button"
-          >
-            <Copy className="h-4 w-4" aria-hidden />
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="bg-background/80 backdrop-blur-sm hover:bg-destructive/20 hover:text-destructive hover:border-destructive/50"
-            onClick={handleDeleteClick}
-            disabled={isDeleting}
-            title="删除简历"
-            type="button"
-          >
-            {isDeleting ? (
-              <div
-                className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
-                aria-label="删除中"
-              />
-            ) : (
-              <Trash2 className="h-4 w-4" aria-hidden />
+          <div
+            className={cn(
+              "absolute inset-x-4 bottom-4 flex gap-2 transition-opacity duration-200",
+              isHovered ? "opacity-100" : "pointer-events-none opacity-0",
             )}
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
+          >
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex-1 bg-background/80 backdrop-blur-sm hover:bg-background"
+              onClick={handleNavigateClick}
+              title="进入优化仪表盘"
+              type="button"
+            >
+              <ExternalLink className="mr-2 h-4 w-4" aria-hidden />
+              优化仪表盘
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="bg-background/80 backdrop-blur-sm hover:bg-background"
+              onClick={handleCopyClick}
+              title="复制简历内容"
+              type="button"
+            >
+              <Copy className="h-4 w-4" aria-hidden />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="bg-background/80 backdrop-blur-sm hover:bg-destructive/20 hover:border-destructive/50 hover:text-destructive"
+              onClick={() => setDeleteDialogOpen(true)}
+              disabled={isDeleting}
+              title="删除简历"
+              type="button"
+              aria-label="删除此简历"
+            >
+              <Trash2 className="h-4 w-4" aria-hidden />
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent className="border-border bg-card">
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认删除简历？</AlertDialogTitle>
+            <AlertDialogDescription>
+              将永久删除「{resume.original_filename}」及其存储文件与相关分析记录，此操作不可撤销。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel type="button" disabled={isDeleting}>
+              取消
+            </AlertDialogCancel>
+            <AlertDialogAction
+              type="button"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={isDeleting}
+              onClick={(e) => {
+                e.preventDefault()
+                void handleConfirmDelete()
+              }}
+            >
+              {isDeleting ? "删除中…" : "确认删除"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   )
 }

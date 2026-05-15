@@ -123,3 +123,29 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* 暗色主题下统一滚动条，避免系统默认浅色粗条 */
+.dashboard-main-scroll,
+.scrollbar-dark {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(30 41 59) transparent;
+}
+
+.dashboard-main-scroll::-webkit-scrollbar,
+.scrollbar-dark::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.dashboard-main-scroll::-webkit-scrollbar-thumb,
+.scrollbar-dark::-webkit-scrollbar-thumb {
+  background-color: rgb(30 41 59);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.dashboard-main-scroll::-webkit-scrollbar-track,
+.scrollbar-dark::-webkit-scrollbar-track {
+  background: transparent;
+}

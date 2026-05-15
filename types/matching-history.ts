@@ -1,3 +1,5 @@
+import type { MatchingHistoryAnalysisJson } from "@/types/matching-history-analysis"
+
 export type MatchingHistoryRow = {
   id: string
   user_id: string
@@ -7,5 +9,6 @@ export type MatchingHistoryRow = {
   score: number | null
   raw_text_snapshot: string | null
   optimized_text_snapshot: string | null
+  analysis_json: MatchingHistoryAnalysisJson | null
   created_at: string
 }

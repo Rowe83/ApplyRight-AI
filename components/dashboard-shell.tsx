@@ -3,14 +3,14 @@
 import { useState, useEffect, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { toast } from "sonner"
-import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar"
-import { AppSidebar } from "@/components/app-sidebar"
-import { DashboardHeader } from "@/components/dashboard-header"
 import { UploadPanel } from "@/components/upload-panel"
 import { AnalysisPanel, AnalysisResult } from "@/components/analysis-panel"
 import { CheckCircle2, Loader2 } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import { dispatchCreditsChanged } from "@/lib/credits-events"
+import { formatMatchScoreDisplay } from "@/lib/format-score"
+import { apiPayloadToAnalysisResult } from "@/lib/match-analysis"
+import { persistMatchAnalysisResult } from "@/lib/match-result-storage"
 
 export type ResumeIdSearchParamKey = "resumeId" | "id"
 
@@ -21,7 +21,6 @@ type DashboardPageBodyProps = {
 const DashboardPageBody = ({ resumeIdSearchParam }: DashboardPageBodyProps) => {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const [authReady, setAuthReady] = useState(false)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null)
   const [preloadedResume, setPreloadedResume] = useState<{ id: string; name: string } | null>(null)
@@ -29,20 +28,20 @@ const DashboardPageBody = ({ resumeIdSearchParam }: DashboardPageBodyProps) => {
   useEffect(() => {
     let cancelled = false
 
-    const checkSession = async () => {
+    const preloadResume = async () => {
       const {
         data: { session },
         error,
       } = await supabase.auth.getSession()
 
-      if (cancelled) return
-
-      if (error || !session) {
-        router.push("/login")
+      if (cancelled) {
         return
       }
 
-      setAuthReady(true)
+      if (error || !session) {
+        setPreloadedResume(null)
+        return
+      }
 
       const resumeId = searchParams.get(resumeIdSearchParam)?.trim()
       if (!resumeId) {
@@ -58,7 +57,9 @@ const DashboardPageBody = ({ resumeIdSearchParam }: DashboardPageBodyProps) => {
           .eq("user_id", session.user.id)
           .maybeSingle<{ original_filename: string }>()
 
-        if (cancelled) return
+        if (cancelled) {
+          return
+        }
 
         if (resumeError) {
           console.error("Failed to preload resume:", resumeError)
@@ -82,12 +83,12 @@ const DashboardPageBody = ({ resumeIdSearchParam }: DashboardPageBodyProps) => {
       }
     }
 
-    void checkSession()
+    void preloadResume()
 
     return () => {
       cancelled = true
     }
-  }, [router, searchParams, resumeIdSearchParam])
+  }, [searchParams, resumeIdSearchParam])
 
   const handleAnalyze = async (payload: { resumeId: string; jdText: string }) => {
     setIsAnalyzing(true)
@@ -128,6 +129,7 @@ const DashboardPageBody = ({ resumeIdSearchParam }: DashboardPageBodyProps) => {
         code?: string
         match_score?: number
         score?: number
+        remaining_credits?: number
         strengths?: string[]
         weaknesses?: string[]
         missing_keywords?: string[]
@@ -135,9 +137,16 @@ const DashboardPageBody = ({ resumeIdSearchParam }: DashboardPageBodyProps) => {
         optimized_content?: string
         revised_summary?: string
         suggestions?: string[]
+        core_suggestions?: string[]
         top_3_suggestions?: string[]
+        score_summary?: string
+        gap_items?: { keyword?: string; reason: string }[]
+        changes?: { section: string; type: "rewrite" | "add" | "remove"; summary: string }[]
+        optimized_content_plain?: string
+        history_id?: string | null
+        resume_title?: string
+        target_job?: string
       }
-      console.log("optimize api raw response:", data)
 
       if (!response.ok) {
         const insufficient =
@@ -153,46 +162,30 @@ const DashboardPageBody = ({ resumeIdSearchParam }: DashboardPageBodyProps) => {
         throw new Error(data.error || "分析失败，请稍后重试")
       }
 
-      const strengths = Array.isArray(data.strengths)
-        ? data.strengths.filter(Boolean).slice(0, 5)
-        : []
-      const weaknesses = Array.isArray(data.weaknesses)
-        ? data.weaknesses.filter(Boolean).slice(0, 5)
-        : []
-      const missingKeywords = Array.isArray(data.missing_keywords)
-        ? data.missing_keywords.filter(Boolean)
-        : []
-      const suggestions = Array.isArray(data.suggestions)
-        ? data.suggestions.filter(Boolean)
-        : Array.isArray(data.top_3_suggestions)
-          ? data.top_3_suggestions.filter(Boolean)
-          : []
-      const originalContent = data.original_content || ""
-      const optimizedContent = data.optimized_content || data.revised_summary || ""
-      const score = Number(data.match_score ?? data.score ?? 0)
+      const nextResult = apiPayloadToAnalysisResult(data)
 
-      setAnalysisResult({
-        matchScore: Number.isFinite(score) ? score : 0,
-        strengths: strengths.length >= 3 ? strengths : suggestions.slice(0, 5),
-        weaknesses: weaknesses.length >= 3 ? weaknesses : suggestions.slice(0, 5),
-        missingKeywords,
-        suggestions: [
-          {
-            category: "核心优化建议",
-            items: suggestions,
-          },
-        ],
-        originalContent: originalContent || payload.jdText,
-        optimizedContent,
-      })
+      setAnalysisResult(nextResult)
+      persistMatchAnalysisResult(nextResult)
+
+      const resultHref = data.history_id
+        ? `/dashboard/match-result?historyId=${encodeURIComponent(data.history_id)}`
+        : "/dashboard/match-result"
+      router.push(resultHref)
+
+      const scoreLabel = formatMatchScoreDisplay(nextResult.matchScore)
+      const scorePhrase = scoreLabel === "--" ? "已完成分析" : `您的简历匹配度为 ${scoreLabel}%`
 
       toast.success("简历优化成功！", {
-        description: `您的简历匹配度为 ${Math.round(score)}%`,
+        description: scorePhrase,
         icon: <CheckCircle2 className="h-4 w-4 text-emerald-500" />,
         duration: 5000,
       })
 
-      dispatchCreditsChanged()
+      if (typeof data.remaining_credits === "number" && Number.isFinite(data.remaining_credits)) {
+        dispatchCreditsChanged(data.remaining_credits)
+      } else {
+        dispatchCreditsChanged()
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "分析失败，请稍后重试"
       toast.error("分析失败", { description: message })
@@ -201,42 +194,22 @@ const DashboardPageBody = ({ resumeIdSearchParam }: DashboardPageBodyProps) => {
     }
   }
 
-  if (!authReady) {
-    return (
-      <div
-        className="flex min-h-screen items-center justify-center bg-background"
-        role="status"
-        aria-label="正在验证登录状态"
-      >
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" aria-hidden />
-      </div>
-    )
-  }
-
   return (
-    <SidebarProvider defaultOpen={true}>
-      <AppSidebar />
-      <SidebarInset className="flex flex-col">
-        <DashboardHeader />
-        <main className="flex-1 overflow-hidden p-4">
-          <div className="grid h-full gap-6 lg:grid-cols-3">
-            <div className="lg:col-span-1 flex flex-col overflow-hidden">
-              <UploadPanel onAnalyze={handleAnalyze} isAnalyzing={isAnalyzing} preloadedResume={preloadedResume} />
-            </div>
+    <div className="grid min-h-[calc(100svh-8rem)] gap-6 lg:grid-cols-3">
+      <div className="flex min-h-0 flex-col overflow-hidden lg:col-span-1">
+        <UploadPanel onAnalyze={handleAnalyze} isAnalyzing={isAnalyzing} preloadedResume={preloadedResume} />
+      </div>
 
-            <div className="lg:col-span-2 overflow-hidden rounded-lg border border-border bg-card/50 p-4">
-              <AnalysisPanel result={analysisResult} isAnalyzing={isAnalyzing} />
-            </div>
-          </div>
-        </main>
-      </SidebarInset>
-    </SidebarProvider>
+      <div className="min-h-0 overflow-hidden rounded-lg border border-border bg-card/50 p-4 lg:col-span-2">
+        <AnalysisPanel result={analysisResult} isAnalyzing={isAnalyzing} />
+      </div>
+    </div>
   )
 }
 
 const dashboardSuspenseFallback = (
   <div
-    className="flex min-h-screen items-center justify-center bg-background"
+    className="flex min-h-[50vh] items-center justify-center"
     role="status"
     aria-label="正在加载"
   >
