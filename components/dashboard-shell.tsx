@@ -14,6 +14,11 @@ import { formatMatchScoreDisplay } from "@/lib/format-score"
 import { apiPayloadToAnalysisResult } from "@/lib/match-analysis"
 import { persistMatchAnalysisResult, readMatchAnalysisResult } from "@/lib/match-result-storage"
 import { clearRefineSuggestions, readRefineSuggestions } from "@/lib/refine-suggestions-storage"
+import { DashboardResultPlaceholder } from "@/components/dashboard-result-placeholder"
+import {
+  markFirstAnalysisComplete,
+  readHasCompletedFirstAnalysis,
+} from "@/lib/workbench-onboarding"
 import type { AnalysisResultWithMeta } from "@/components/match-result-actions"
 
 export type ResumeIdSearchParamKey = "resumeId" | "id"
@@ -28,6 +33,52 @@ const DashboardPageBody = ({ resumeIdSearchParam }: DashboardPageBodyProps) => {
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [preloadedResume, setPreloadedResume] = useState<{ id: string; name: string } | null>(null)
   const [lastResultHref, setLastResultHref] = useState<string | null>(null)
+  const [hasCompletedFirstAnalysis, setHasCompletedFirstAnalysis] = useState(false)
+  const [isFirstTimeUser, setIsFirstTimeUser] = useState(false)
+
+  useEffect(() => {
+    setHasCompletedFirstAnalysis(readHasCompletedFirstAnalysis())
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const detectFirstTimeUser = async () => {
+      const {
+        data: { user },
+        error,
+      } = await supabase.auth.getUser()
+
+      if (cancelled || error || !user) {
+        return
+      }
+
+      const [resumesQuery, historiesQuery] = await Promise.all([
+        supabase
+          .from("resumes")
+          .select("id", { count: "exact", head: true })
+          .eq("user_id", user.id),
+        supabase
+          .from("matching_histories")
+          .select("id", { count: "exact", head: true })
+          .eq("user_id", user.id),
+      ])
+
+      if (cancelled) {
+        return
+      }
+
+      const resumeCount = resumesQuery.count ?? 0
+      const historyCount = historiesQuery.count ?? 0
+      setIsFirstTimeUser(resumeCount === 0 && historyCount === 0)
+    }
+
+    void detectFirstTimeUser()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     const stored = readMatchAnalysisResult()
@@ -209,6 +260,9 @@ const DashboardPageBody = ({ resumeIdSearchParam }: DashboardPageBodyProps) => {
 
       persistMatchAnalysisResult(resultWithMeta)
       clearRefineSuggestions()
+      markFirstAnalysisComplete()
+      setHasCompletedFirstAnalysis(true)
+      setIsFirstTimeUser(false)
 
       const resultHref = data.history_id
         ? `/dashboard/match-result?historyId=${encodeURIComponent(data.history_id)}`
@@ -240,7 +294,12 @@ const DashboardPageBody = ({ resumeIdSearchParam }: DashboardPageBodyProps) => {
   return (
     <div className="grid min-h-[calc(100svh-8rem)] gap-6 lg:grid-cols-3">
       <div className="flex min-h-0 flex-col overflow-hidden lg:col-span-1">
-        <UploadPanel onAnalyze={handleAnalyze} isAnalyzing={isAnalyzing} preloadedResume={preloadedResume} />
+        <UploadPanel
+          onAnalyze={handleAnalyze}
+          isAnalyzing={isAnalyzing}
+          preloadedResume={preloadedResume}
+          hasCompletedFirstAnalysis={hasCompletedFirstAnalysis}
+        />
       </div>
 
       <div className="min-h-0 overflow-hidden rounded-lg border border-border bg-card/50 p-4 lg:col-span-2">
@@ -265,7 +324,7 @@ const DashboardPageBody = ({ resumeIdSearchParam }: DashboardPageBodyProps) => {
             </Button>
           </div>
         ) : (
-          <AnalysisPanel result={null} isAnalyzing={false} />
+          <DashboardResultPlaceholder isFirstTimeUser={isFirstTimeUser} />
         )}
       </div>
     </div>

@@ -11,18 +11,31 @@ import { cn } from "@/lib/utils"
 import { supabase } from "@/lib/supabase"
 import { extractPdfTextFromFile } from "@/lib/extract-pdf-text"
 import { readRefineSuggestions, type RefineSuggestionsPayload } from "@/lib/refine-suggestions-storage"
+import { WorkbenchStepChecklist } from "@/components/workbench-step-checklist"
+import {
+  ANALYZE_BLOCKER_MESSAGES,
+  deriveWorkbenchStepStatus,
+  getAnalyzeBlocker,
+  JD_MIN_LENGTH,
+} from "@/lib/workbench-onboarding"
 
 interface UploadPanelProps {
   onAnalyze: (payload: { resumeId: string; jdText: string }) => void
   isAnalyzing: boolean
   preloadedResume?: { id: string; name: string } | null
+  hasCompletedFirstAnalysis?: boolean
 }
 
 /** Storage keys must be ASCII-only; Unicode filenames (e.g. 中文) cause Invalid key */
 const buildResumeStoragePath = (userId: string) =>
   `${userId}/${Date.now()}_${crypto.randomUUID()}.pdf`
 
-export const UploadPanel = ({ onAnalyze, isAnalyzing, preloadedResume }: UploadPanelProps) => {
+export const UploadPanel = ({
+  onAnalyze,
+  isAnalyzing,
+  preloadedResume,
+  hasCompletedFirstAnalysis = false,
+}: UploadPanelProps) => {
   const searchParams = useSearchParams()
   const [resumeFile, setResumeFile] = useState<File | null>(null)
   const [jobDescription, setJobDescription] = useState("")
@@ -95,8 +108,8 @@ export const UploadPanel = ({ onAnalyze, isAnalyzing, preloadedResume }: UploadP
 
   const handleAnalyzeClick = useCallback(async () => {
     const jdText = jobDescription.trim()
-    if (!jdText) {
-      toast.error("请填写职位描述")
+    if (jdText.length < JD_MIN_LENGTH) {
+      toast.error(`请填写职位描述（至少 ${JD_MIN_LENGTH} 个字符）`)
       return
     }
 
@@ -194,13 +207,21 @@ export const UploadPanel = ({ onAnalyze, isAnalyzing, preloadedResume }: UploadP
     }
   }, [jobDescription, onAnalyze, resumeFile, libraryResumeActive, preloadedResume])
 
-  const canAnalyze =
-    Boolean(jobDescription.trim()) && (Boolean(resumeFile) || libraryResumeActive)
+  const hasResume = Boolean(resumeFile) || libraryResumeActive
+  const stepStatus = deriveWorkbenchStepStatus({
+    hasResume,
+    jdText: jobDescription,
+    hasCompletedFirstAnalysis,
+  })
+  const analyzeBlocker = getAnalyzeBlocker({ hasResume, jdText: jobDescription })
+  const canAnalyze = jobDescription.trim().length >= JD_MIN_LENGTH && hasResume
 
   const refineItemCount = refineHints?.items.length ?? 0
 
   return (
     <div className="flex h-full flex-col gap-4">
+      <WorkbenchStepChecklist status={stepStatus} />
+
       {refineItemCount > 0 ? (
         <div
           className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm"
@@ -224,8 +245,8 @@ export const UploadPanel = ({ onAnalyze, isAnalyzing, preloadedResume }: UploadP
 
       <Card className="border-border bg-card">
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">上传简历</CardTitle>
-          <CardDescription>仅支持 PDF 格式</CardDescription>
+          <CardTitle className="text-base">① 上传简历</CardTitle>
+          <CardDescription>仅支持 PDF 格式，或从「我的简历」带入</CardDescription>
         </CardHeader>
         <CardContent>
           {resumeFile ? (
@@ -321,10 +342,10 @@ export const UploadPanel = ({ onAnalyze, isAnalyzing, preloadedResume }: UploadP
         </CardContent>
       </Card>
 
-      <Card className="flex-1 border-border bg-card flex flex-col">
+      <Card className="flex flex-1 flex-col border-border bg-card">
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">目标职位描述</CardTitle>
-          <CardDescription>粘贴您想申请的职位描述（JD）</CardDescription>
+          <CardTitle className="text-base">② 目标职位描述</CardTitle>
+          <CardDescription>粘贴您想申请的职位描述（JD，建议不少于 {JD_MIN_LENGTH} 字）</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <Textarea
@@ -338,6 +359,11 @@ export const UploadPanel = ({ onAnalyze, isAnalyzing, preloadedResume }: UploadP
             value={jobDescription}
             onChange={(e) => setJobDescription(e.target.value)}
           />
+          {analyzeBlocker && !isAnalyzing && !isUploading ? (
+            <p className="text-center text-xs text-muted-foreground" role="status">
+              {ANALYZE_BLOCKER_MESSAGES[analyzeBlocker]}
+            </p>
+          ) : null}
           <Button
             size="lg"
             className={cn(
@@ -347,6 +373,7 @@ export const UploadPanel = ({ onAnalyze, isAnalyzing, preloadedResume }: UploadP
             disabled={!canAnalyze || isAnalyzing || isUploading}
             onClick={handleAnalyzeClick}
             type="button"
+            aria-label="③ 分析并优化简历"
           >
             {isUploading ? (
               <>
@@ -361,7 +388,7 @@ export const UploadPanel = ({ onAnalyze, isAnalyzing, preloadedResume }: UploadP
             ) : (
               <>
                 <Sparkles className="mr-2 h-4 w-4" />
-                分析并优化
+                ③ 分析并优化
               </>
             )}
             {canAnalyze && !isAnalyzing && !isUploading && (
