@@ -9,6 +9,8 @@ import { formatCompactLocalDateTime } from "@/lib/date-utils"
 import { formatMatchScoreDisplay } from "@/lib/format-score"
 import { MATCHING_HISTORIES_DDL } from "@/lib/matching-histories-ddl"
 import { parseHistoryFetchError } from "@/lib/matching-history-fetch-errors"
+import { getHistoryAnalysisTier } from "@/lib/history-analysis-tier"
+import { HistoryTierBadge } from "@/components/history-tier-badge"
 import type { MatchingHistoryRow } from "@/types/matching-history"
 import { HistoryTableSkeleton } from "@/components/dashboard-skeletons"
 import { Button } from "@/components/ui/button"
@@ -88,15 +90,39 @@ export default function MatchingHistoryPage() {
       const from = page * PAGE_SIZE
       const to = from + PAGE_SIZE - 1
 
-      const { data, error, count } = await supabase
+      const selectFull =
+        "id, user_id, resume_id, resume_title, target_job, score, raw_text_snapshot, optimized_text_snapshot, analysis_json, created_at"
+      const selectLegacy =
+        "id, user_id, resume_id, resume_title, target_job, score, raw_text_snapshot, optimized_text_snapshot, created_at"
+
+      let data: MatchingHistoryRow[] | null = null
+      let error: { message?: string } | null = null
+      let count: number | null = null
+
+      const fullQuery = await supabase
         .from("matching_histories")
-        .select(
-          "id, user_id, resume_id, resume_title, target_job, score, raw_text_snapshot, optimized_text_snapshot, created_at",
-          { count: "exact" },
-        )
+        .select(selectFull, { count: "exact" })
         .eq("user_id", user.id)
         .order("created_at", { ascending: false })
         .range(from, to)
+
+      if (!fullQuery.error) {
+        data = (fullQuery.data ?? []) as MatchingHistoryRow[]
+        count = fullQuery.count
+      } else {
+        const legacyQuery = await supabase
+          .from("matching_histories")
+          .select(selectLegacy, { count: "exact" })
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false })
+          .range(from, to)
+        data = (legacyQuery.data ?? []).map((row) => ({
+          ...(row as MatchingHistoryRow),
+          analysis_json: null,
+        }))
+        error = legacyQuery.error
+        count = legacyQuery.count
+      }
 
       if (error) {
         console.error("Fetch history error:", error)
@@ -280,13 +306,21 @@ export default function MatchingHistoryPage() {
                     <th scope="col" className="whitespace-nowrap px-4 py-3">
                       匹配度
                     </th>
+                    <th scope="col" className="whitespace-nowrap px-4 py-3">
+                      快照类型
+                    </th>
                     <th scope="col" className="whitespace-nowrap px-4 py-3 text-right">
                       操作
                     </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/80">
-                  {rows.map((row) => (
+                  {rows.map((row) => {
+                    const tier = getHistoryAnalysisTier(row).tier
+                    const resultLinkLabel =
+                      tier === "diff-only" ? "查看 Diff" : "查看完整结果"
+
+                    return (
                     <tr
                       key={row.id}
                       className="text-slate-200 transition-colors hover:bg-slate-800/40"
@@ -303,6 +337,9 @@ export default function MatchingHistoryPage() {
                       <td className="px-4 py-3">
                         <ScoreBadge score={row.score} />
                       </td>
+                      <td className="px-4 py-3">
+                        <HistoryTierBadge tier={tier} />
+                      </td>
                       <td className="px-4 py-3 text-right">
                         <Button
                           type="button"
@@ -313,14 +350,15 @@ export default function MatchingHistoryPage() {
                         >
                           <Link
                             href={`/dashboard/match-result?historyId=${encodeURIComponent(row.id)}`}
-                            aria-label={`查看 ${row.resume_title ?? "简历"} 的完整匹配结果`}
+                            aria-label={`${resultLinkLabel}：${row.resume_title ?? "简历"}`}
                           >
-                            查看完整结果
+                            {resultLinkLabel}
                           </Link>
                         </Button>
                       </td>
                     </tr>
-                  ))}
+                    )
+                  })}
                 </tbody>
               </table>
             </div>

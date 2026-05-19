@@ -9,6 +9,8 @@ import { MatchResultActions, type AnalysisResultWithMeta } from "@/components/ma
 import { Button } from "@/components/ui/button"
 import { matchingHistoryRowToResult } from "@/lib/match-analysis"
 import { fetchMatchingHistoryById } from "@/lib/fetch-matching-history"
+import { getHistoryAnalysisTier, type HistoryAnalysisTier } from "@/lib/history-analysis-tier"
+import { HistoryLegacyBanner } from "@/components/history-legacy-banner"
 import { readMatchAnalysisResult } from "@/lib/match-result-storage"
 import { supabase } from "@/lib/supabase"
 
@@ -18,6 +20,7 @@ const MatchResultPageBody = () => {
   const historyId = searchParams.get("historyId")?.trim() ?? ""
 
   const [result, setResult] = useState<AnalysisResultWithMeta | null>(null)
+  const [playbackTier, setPlaybackTier] = useState<HistoryAnalysisTier>("full")
   const [loadState, setLoadState] = useState<"loading" | "ready" | "empty" | "error">("loading")
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
@@ -66,6 +69,7 @@ const MatchResultPageBody = () => {
           return
         }
 
+        setPlaybackTier(getHistoryAnalysisTier(data).tier)
         setResult({
           ...parsed,
           historyId: data.id,
@@ -77,6 +81,7 @@ const MatchResultPageBody = () => {
         return
       }
 
+      setPlaybackTier("full")
       const sessionResult = readMatchAnalysisResult()
       if (cancelled) {
         return
@@ -169,8 +174,10 @@ const MatchResultPageBody = () => {
         <MatchResultActions result={result} />
       </div>
 
+      {historyId ? <HistoryLegacyBanner tier={playbackTier} /> : null}
+
       <div className="min-h-[calc(100svh-10rem)] overflow-hidden rounded-lg border border-border bg-card/50 p-3 sm:p-4">
-        <AnalysisPanel result={result} isAnalyzing={false} />
+        <AnalysisPanel result={result} isAnalyzing={false} playbackTier={playbackTier} />
       </div>
     </div>
   )

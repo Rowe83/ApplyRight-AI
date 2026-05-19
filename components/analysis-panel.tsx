@@ -12,6 +12,7 @@ import { getOptimizedTextForDiff } from "@/lib/match-analysis"
 import { scrollToDiffSection, scrollToKeywordInDiff } from "@/lib/diff-navigation"
 import { SuggestionRefinePanel } from "@/components/suggestion-refine-panel"
 import type { AnalysisResultWithMeta } from "@/components/match-result-actions"
+import type { HistoryAnalysisTier } from "@/lib/history-analysis-tier"
 import type { MatchChangeItem, MatchGapItem } from "@/types/matching-history-analysis"
 import ReactMarkdown from "react-markdown"
 import {
@@ -43,11 +44,17 @@ export interface AnalysisResult {
 interface AnalysisPanelProps {
   result: AnalysisResult | AnalysisResultWithMeta | null
   isAnalyzing: boolean
+  /** Session results default to full; history rows pass tier from DB */
+  playbackTier?: HistoryAnalysisTier
 }
 
 type DiffTab = "section-diff" | "line-diff" | "original" | "optimized"
 
-export function AnalysisPanel({ result, isAnalyzing }: AnalysisPanelProps) {
+export function AnalysisPanel({
+  result,
+  isAnalyzing,
+  playbackTier = "full",
+}: AnalysisPanelProps) {
   const [copied, setCopied] = useState(false)
   const [diffTab, setDiffTab] = useState<DiffTab>("section-diff")
   const [syncScroll, setSyncScroll] = useState(true)
@@ -115,6 +122,7 @@ export function AnalysisPanel({ result, isAnalyzing }: AnalysisPanelProps) {
   const diffMode = diffTab === "line-diff" ? "lines" : "sections"
   const optimizedForDiff = getOptimizedTextForDiff(result)
   const optimizedPlainOverride = result.optimizedContentPlain?.trim() || undefined
+  const isFullPlayback = playbackTier === "full"
 
   const handleSelectChange = (change: MatchChangeItem) => {
     setDiffTab("section-diff")
@@ -146,8 +154,12 @@ export function AnalysisPanel({ result, isAnalyzing }: AnalysisPanelProps) {
   return (
     <div className="flex h-full min-h-[min(70vh,800px)] flex-col gap-4 lg:flex-row lg:gap-6">
       <div className="shrink-0 lg:w-[min(100%,280px)] lg:max-w-xs">
-        <MatchSummaryCompact result={result} onKeywordClick={handleKeywordClick} />
-        {suggestionItems.length > 0 ? (
+        <MatchSummaryCompact
+          result={result}
+          onKeywordClick={isFullPlayback ? handleKeywordClick : undefined}
+          compactOnlyScore={playbackTier === "diff-only"}
+        />
+        {isFullPlayback && suggestionItems.length > 0 ? (
           <SuggestionRefinePanel
             suggestions={suggestionItems}
             resumeId={meta.resumeId}
@@ -169,7 +181,7 @@ export function AnalysisPanel({ result, isAnalyzing }: AnalysisPanelProps) {
           </Badge>
         </div>
 
-        {result.changes && result.changes.length > 0 ? (
+        {isFullPlayback && result.changes && result.changes.length > 0 ? (
           <MatchChangesSummary
             changes={result.changes}
             onSelectChange={handleSelectChange}

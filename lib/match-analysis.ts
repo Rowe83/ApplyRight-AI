@@ -6,6 +6,7 @@ import type {
 } from "@/types/matching-history-analysis"
 import { toPlainResumeText } from "@/lib/plain-resume-text"
 import type { MatchingHistoryRow } from "@/types/matching-history"
+import { getHistoryAnalysisTier, isAnalysisJson } from "@/lib/history-analysis-tier"
 
 const CHANGE_TYPES = new Set<MatchChangeItem["type"]>(["rewrite", "add", "remove"])
 
@@ -155,20 +156,14 @@ export const apiPayloadToAnalysisResult = (input: {
   }
 }
 
-const isAnalysisJson = (value: unknown): value is MatchingHistoryAnalysisJson => {
-  if (!value || typeof value !== "object") {
-    return false
-  }
-  const row = value as Partial<MatchingHistoryAnalysisJson>
-  return typeof row.match_score === "number" && Array.isArray(row.strengths)
-}
-
 export const matchingHistoryRowToResult = (row: MatchingHistoryRow): AnalysisResult | null => {
   const raw = row.raw_text_snapshot ?? ""
   const optimized = row.optimized_text_snapshot ?? ""
   if (!raw.trim() && !optimized.trim()) {
     return null
   }
+
+  const plainFromSnapshot = toPlainResumeText(optimized)
 
   if (isAnalysisJson(row.analysis_json)) {
     const json = row.analysis_json
@@ -183,7 +178,7 @@ export const matchingHistoryRowToResult = (row: MatchingHistoryRow): AnalysisRes
       changes: json.changes,
       original_content: raw,
       optimized_content: optimized,
-      optimized_content_plain: json.optimized_content_plain,
+      optimized_content_plain: json.optimized_content_plain?.trim() || plainFromSnapshot,
     })
     return base
   }
@@ -192,8 +187,11 @@ export const matchingHistoryRowToResult = (row: MatchingHistoryRow): AnalysisRes
     match_score: row.score ?? 0,
     original_content: raw,
     optimized_content: optimized,
+    optimized_content_plain: plainFromSnapshot,
   })
 }
+
+export { getHistoryAnalysisTier }
 
 export const getOptimizedTextForDiff = (result: AnalysisResult): string =>
   result.optimizedContentPlain?.trim() || result.optimizedContent

@@ -17,9 +17,15 @@ import { cn } from "@/lib/utils"
 type MatchSummaryCompactProps = {
   result: AnalysisResult
   onKeywordClick?: (keyword: string) => void
+  /** Legacy diff-only history: show score only, hide empty analysis blocks */
+  compactOnlyScore?: boolean
 }
 
-export const MatchSummaryCompact = ({ result, onKeywordClick }: MatchSummaryCompactProps) => {
+export const MatchSummaryCompact = ({
+  result,
+  onKeywordClick,
+  compactOnlyScore = false,
+}: MatchSummaryCompactProps) => {
   const [expanded, setExpanded] = useState(false)
   const scoreLabel = formatMatchScoreDisplay(result.matchScore)
 
@@ -50,6 +56,28 @@ export const MatchSummaryCompact = ({ result, onKeywordClick }: MatchSummaryComp
       : null)
 
   const hasMoreSuggestions = result.suggestions.some((s) => s.items.length > 0)
+
+  if (compactOnlyScore) {
+    const scoreLabelOnly = formatMatchScoreDisplay(result.matchScore)
+    return (
+      <aside
+        className="flex flex-col gap-3 rounded-lg border border-border bg-card/80 p-4"
+        aria-label="匹配分数"
+      >
+        <div className="flex items-center gap-4">
+          <MatchScoreGauge score={result.matchScore} size="sm" />
+          <div className="min-w-0 flex-1 space-y-1">
+            <p className="text-sm font-semibold text-foreground">
+              匹配度 {scoreLabelOnly === "--" ? "—" : `${scoreLabelOnly}%`}
+            </p>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              旧版记录无结构化摘要，请使用右侧 Diff 查看改动。
+            </p>
+          </div>
+        </div>
+      </aside>
+    )
+  }
 
   return (
     <aside
