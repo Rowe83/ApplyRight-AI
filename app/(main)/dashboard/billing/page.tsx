@@ -1,10 +1,11 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { Suspense, useCallback, useEffect, useState } from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
+import { BillingCheckoutDialog } from "@/components/billing-checkout-dialog"
 import { BillingPlanComparison } from "@/components/billing-plan-comparison"
 import {
   OPTIMIZE_CREDIT_COST,
@@ -20,14 +21,6 @@ import type { CreditTransactionRow } from "@/types/credit-transaction"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import {
   Table,
   TableBody,
@@ -46,7 +39,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty"
-import { Loader2, ArrowLeft, Coins, QrCode, Sparkles, Zap, Receipt } from "lucide-react"
+import { Loader2, ArrowLeft, Coins, Sparkles, Zap, Receipt } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 const DISPLAY_CAP = 30
@@ -116,14 +109,32 @@ const formatActionLabel = (row: CreditTransactionRow) => {
   return row.action_type || "变动"
 }
 
-export default function BillingPage() {
+const getAccessToken = async (): Promise<string | null> => {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession()
+
+  let token = session?.access_token
+  if (!token) {
+    const {
+      data: { session: refreshed },
+    } = await supabase.auth.refreshSession()
+    token = refreshed?.access_token
+  }
+  return token ?? null
+}
+
+function BillingPageContent() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { credits, isLoading: creditsLoading } = useCredits()
   const [rows, setRows] = useState<CreditTransactionRow[]>([])
   const [txLoading, setTxLoading] = useState(true)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [selectedPackageId, setSelectedPackageId] = useState<MockPurchasePackageId | null>(null)
   const [isPaying, setIsPaying] = useState(false)
+  const [stripeEnabled, setStripeEnabled] = useState(false)
+  const [mockAllowed, setMockAllowed] = useState(false)
 
   const allPackages = [...PAYGO_PACKAGES, ...SUBSCRIPTION_PACKAGES]
 
@@ -171,6 +182,91 @@ export default function BillingPage() {
   }, [loadTransactions])
 
   useEffect(() => {
+    const loadBillingConfig = async () => {
+      try {
+        const res = await fetch("/api/billing/config")
+        if (!res.ok) return
+        const data = (await res.json()) as { stripeEnabled?: boolean; mockAllowed?: boolean }
+        setStripeEnabled(Boolean(data.stripeEnabled))
+        setMockAllowed(Boolean(data.mockAllowed))
+      } catch {
+        setStripeEnabled(false)
+        setMockAllowed(process.env.NODE_ENV === "development")
+      }
+    }
+    void loadBillingConfig()
+  }, [])
+
+  const verifyStripeSession = useCallback(
+    async (sessionId: string) => {
+      const token = await getAccessToken()
+      if (!token) {
+        toast.error("请先登录")
+        router.push("/login")
+        return
+      }
+
+      const response = await fetch("/api/billing/verify-session", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ sessionId }),
+      })
+
+      const data = (await response.json()) as {
+        error?: string
+        credits?: number
+        label?: string
+        alreadyFulfilled?: boolean
+      }
+
+      if (!response.ok) {
+        throw new Error(data.error || "无法确认支付结果")
+      }
+
+      if (typeof data.credits === "number" && Number.isFinite(data.credits)) {
+        dispatchCreditsChanged(data.credits)
+      } else {
+        dispatchCreditsChanged()
+      }
+
+      toast.success(data.alreadyFulfilled ? "支付已入账" : "支付成功", {
+        description: data.label ? `已入账：${data.label}` : "额度已更新",
+      })
+      void loadTransactions()
+    },
+    [loadTransactions, router],
+  )
+
+  useEffect(() => {
+    const checkout = searchParams.get("checkout")
+    const sessionId = searchParams.get("session_id")
+
+    if (checkout === "cancelled") {
+      toast.message("已取消支付")
+      router.replace("/dashboard/billing")
+      return
+    }
+
+    if (checkout !== "success" || !sessionId) {
+      return
+    }
+
+    void (async () => {
+      try {
+        await verifyStripeSession(sessionId)
+      } catch (e) {
+        const message = e instanceof Error ? e.message : "无法确认支付"
+        toast.error("支付确认失败", { description: message })
+      } finally {
+        router.replace("/dashboard/billing")
+      }
+    })()
+  }, [searchParams, router, verifyStripeSession])
+
+  useEffect(() => {
     const handleCredits = () => {
       void loadTransactions()
     }
@@ -183,23 +279,51 @@ export default function BillingPage() {
     setCheckoutOpen(true)
   }
 
+  const handleStripeCheckout = async () => {
+    if (!selectedPackageId) return
+
+    setIsPaying(true)
+    try {
+      const token = await getAccessToken()
+      if (!token) {
+        toast.error("请先登录")
+        router.push("/login")
+        return
+      }
+
+      const response = await fetch("/api/billing/create-checkout", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ packageId: selectedPackageId }),
+      })
+
+      const data = (await response.json()) as { error?: string; url?: string }
+
+      if (!response.ok) {
+        throw new Error(data.error || "无法创建支付会话")
+      }
+
+      if (!data.url) {
+        throw new Error("支付链接为空")
+      }
+
+      window.location.href = data.url
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "无法跳转支付"
+      toast.error("支付未完成", { description: message })
+      setIsPaying(false)
+    }
+  }
+
   const handleMockPaySuccess = async () => {
     if (!selectedPackageId) return
 
     setIsPaying(true)
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession()
-
-      let token = session?.access_token
-      if (!token) {
-        const {
-          data: { session: refreshed },
-        } = await supabase.auth.refreshSession()
-        token = refreshed?.access_token
-      }
-
+      const token = await getAccessToken()
       if (!token) {
         toast.error("请先登录")
         router.push("/login")
@@ -262,7 +386,9 @@ export default function BillingPage() {
       <div>
         <h1 className="text-lg font-medium text-foreground">积分与计费</h1>
         <p className="text-sm text-muted-foreground">
-          查看剩余额度、模拟充值与消费流水（演示环境，非真实支付）
+          {stripeEnabled
+            ? "查看剩余额度、在线充值与消费流水（Stripe 安全支付）"
+            : "查看剩余额度、模拟充值与消费流水（未配置 Stripe 时为演示环境）"}
         </p>
       </div>
 
@@ -411,59 +537,30 @@ export default function BillingPage() {
             </div>
           </div>
 
-      <Dialog open={checkoutOpen} onOpenChange={setCheckoutOpen}>
-        <DialogContent className="border-border/80 bg-slate-950/95 sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <QrCode className="h-5 w-5 text-primary" />
-              模拟收银台
-            </DialogTitle>
-            <DialogDescription>
-              请使用微信或支付宝扫描下方二维码完成支付（演示环境为占位图示）。
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex flex-col items-center gap-4 py-2">
-            <div className="flex h-44 w-44 items-center justify-center rounded-xl border border-dashed border-primary/40 bg-primary/5">
-              <QrCode className="h-24 w-24 text-primary/40" aria-hidden />
-            </div>
-            {selectedPack ? (
-              <div className="text-center text-sm">
-                <p className="font-medium text-foreground">{selectedPack.title}</p>
-                <p className="text-muted-foreground">
-                  {selectedPack.priceLabel} · {selectedPack.credits}{" "}
-                  {selectedPack.kind === "subscription" ? "次/月额度（演示）" : "次额度"}
-                </p>
-              </div>
-            ) : null}
-          </div>
-          <DialogFooter className="flex-col gap-2 sm:flex-col">
-            <Button
-              type="button"
-              className="w-full"
-              disabled={isPaying}
-              onClick={() => void handleMockPaySuccess()}
-            >
-              {isPaying ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  处理中…
-                </>
-              ) : (
-                "模拟支付成功"
-              )}
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              className="w-full text-muted-foreground"
-              disabled={isPaying}
-              onClick={() => setCheckoutOpen(false)}
-            >
-              取消
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <BillingCheckoutDialog
+        open={checkoutOpen}
+        onOpenChange={setCheckoutOpen}
+        selectedPack={selectedPack ?? null}
+        stripeEnabled={stripeEnabled}
+        mockAllowed={mockAllowed}
+        isPaying={isPaying}
+        onStripeCheckout={() => void handleStripeCheckout()}
+        onMockPaySuccess={() => void handleMockPaySuccess()}
+      />
     </div>
+  )
+}
+
+export default function BillingPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-[40vh] items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" aria-hidden />
+        </div>
+      }
+    >
+      <BillingPageContent />
+    </Suspense>
   )
 }

@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint .",
     "db:apply-credits-billing": "node scripts/apply-credits-billing.mjs",
+    "db:apply-payment-orders": "node scripts/apply-payment-orders.mjs",
     "db:apply-analysis-json": "node scripts/apply-analysis-json.mjs"
   },
   "dependencies": {
@@ -63,6 +64,7 @@
     "react-resizable-panels": "^2.1.7",
     "recharts": "2.15.0",
     "sonner": "^1.7.1",
+    "stripe": "^22.1.1",
     "tailwind-merge": "^3.3.1",
     "vaul": "^1.1.2",
     "zod": "^3.24.1"
