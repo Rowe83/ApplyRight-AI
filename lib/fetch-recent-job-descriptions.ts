@@ -1,36 +1,27 @@
-import { supabase } from "@/lib/supabase"
+import type { JobDescriptionRecord } from "@/types/resume"
 
-export type RecentJobDescription = {
-  id: string
-  job_title: string | null
-  full_text: string | null
-  created_at: string
-}
+export type RecentJobDescription = JobDescriptionRecord
 
 export const fetchRecentJobDescriptions = async (
   limit = 5,
 ): Promise<{ data: RecentJobDescription[]; error: string | null }> => {
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser()
-
-  if (userError || !user) {
-    return { data: [], error: userError?.message ?? "未登录" }
+  try {
+    const res = await fetch(`/api/job-descriptions?limit=${limit}`)
+    const data = (await res.json()) as RecentJobDescription[] & { error?: string }
+    if (!res.ok) {
+      const message =
+        typeof data === "object" && data && "error" in data
+          ? String((data as { error?: string }).error)
+          : `HTTP ${res.status}`
+      return { data: [], error: message }
+    }
+    return { data: Array.isArray(data) ? data : [], error: null }
+  } catch (err) {
+    return {
+      data: [],
+      error: err instanceof Error ? err.message : "加载 JD 失败",
+    }
   }
-
-  const { data, error } = await supabase
-    .from("job_descriptions")
-    .select("id, job_title, full_text, created_at")
-    .eq("user_id", user.id)
-    .order("created_at", { ascending: false })
-    .limit(limit)
-
-  if (error) {
-    return { data: [], error: error.message }
-  }
-
-  return { data: (data ?? []) as RecentJobDescription[], error: null }
 }
 
 export const pickJdPreviewLabel = (row: RecentJobDescription): string => {

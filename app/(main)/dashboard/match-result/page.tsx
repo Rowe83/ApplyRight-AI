@@ -12,7 +12,6 @@ import { fetchMatchingHistoryById } from "@/lib/fetch-matching-history"
 import { getHistoryAnalysisTier, type HistoryAnalysisTier } from "@/lib/history-analysis-tier"
 import { HistoryLegacyBanner } from "@/components/history-legacy-banner"
 import { readMatchAnalysisResult } from "@/lib/match-result-storage"
-import { supabase } from "@/lib/supabase"
 
 const MatchResultPageBody = () => {
   const router = useRouter()
@@ -32,21 +31,7 @@ const MatchResultPageBody = () => {
       setErrorMessage(null)
 
       if (historyId) {
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser()
-
-        if (cancelled) {
-          return
-        }
-
-        if (userError || !user) {
-          router.push("/login")
-          return
-        }
-
-        const { data, error } = await fetchMatchingHistoryById(historyId, user.id)
+        const { data, error } = await fetchMatchingHistoryById(historyId)
 
         if (cancelled) {
           return

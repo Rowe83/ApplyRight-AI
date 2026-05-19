@@ -38,3 +38,6 @@ next-env.d.ts
 
 # history files
 .history
+
+# local app data (resumes, history, config)
+data/

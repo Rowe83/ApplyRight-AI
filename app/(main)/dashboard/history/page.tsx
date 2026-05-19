@@ -2,13 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
-import { toast } from "sonner"
-import { supabase } from "@/lib/supabase"
+import { api } from "@/lib/api-client"
 import { formatCompactLocalDateTime } from "@/lib/date-utils"
 import { formatMatchScoreDisplay } from "@/lib/format-score"
-import { MATCHING_HISTORIES_DDL } from "@/lib/matching-histories-ddl"
-import { parseHistoryFetchError } from "@/lib/matching-history-fetch-errors"
 import { getHistoryAnalysisTier } from "@/lib/history-analysis-tier"
 import { HistoryTierBadge } from "@/components/history-tier-badge"
 import type { MatchingHistoryRow } from "@/types/matching-history"
@@ -22,7 +18,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty"
-import { Loader2, History, Sparkles, ChevronLeft, ChevronRight, Copy, Database, Upload } from "lucide-react"
+import { Loader2, History, Sparkles, ChevronLeft, ChevronRight, Upload } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 const PAGE_SIZE = 15
@@ -62,113 +58,33 @@ const ScoreBadge = ({ score }: { score: number | null }) => {
 }
 
 export default function MatchingHistoryPage() {
-  const router = useRouter()
   const [rows, setRows] = useState<MatchingHistoryRow[]>([])
   const [totalCount, setTotalCount] = useState(0)
   const [page, setPage] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [loadErrorDetail, setLoadErrorDetail] = useState<string | null>(null)
-  const [missingTableHint, setMissingTableHint] = useState(false)
   const fetchPage = useCallback(async () => {
     setIsLoading(true)
     setLoadError(null)
     setLoadErrorDetail(null)
-    setMissingTableHint(false)
 
     try {
-      const {
-        data: { user },
-        error: userError,
-      } = await supabase.auth.getUser()
-
-      if (userError || !user) {
-        router.push("/login")
-        return
-      }
-
+      const all = (await api.getHistories()) as MatchingHistoryRow[]
+      const list = Array.isArray(all) ? all : []
+      setTotalCount(list.length)
       const from = page * PAGE_SIZE
-      const to = from + PAGE_SIZE - 1
-
-      const selectFull =
-        "id, user_id, resume_id, resume_title, target_job, score, raw_text_snapshot, optimized_text_snapshot, analysis_json, created_at"
-      const selectLegacy =
-        "id, user_id, resume_id, resume_title, target_job, score, raw_text_snapshot, optimized_text_snapshot, created_at"
-
-      let data: MatchingHistoryRow[] | null = null
-      let error: { message?: string } | null = null
-      let count: number | null = null
-
-      const fullQuery = await supabase
-        .from("matching_histories")
-        .select(selectFull, { count: "exact" })
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false })
-        .range(from, to)
-
-      if (!fullQuery.error) {
-        data = (fullQuery.data ?? []) as MatchingHistoryRow[]
-        count = fullQuery.count
-      } else {
-        const legacyQuery = await supabase
-          .from("matching_histories")
-          .select(selectLegacy, { count: "exact" })
-          .eq("user_id", user.id)
-          .order("created_at", { ascending: false })
-          .range(from, to)
-        data = (legacyQuery.data ?? []).map((row) => ({
-          ...(row as MatchingHistoryRow),
-          analysis_json: null,
-        }))
-        error = legacyQuery.error
-        count = legacyQuery.count
-      }
-
-      if (error) {
-        console.error("Fetch history error:", error)
-        const parsed = parseHistoryFetchError(error)
-        if (parsed.kind === "missing_table") {
-          setMissingTableHint(true)
-          setRows([])
-          setTotalCount(0)
-          return
-        }
-        setLoadError(parsed.message)
-        setLoadErrorDetail(parsed.technical ?? null)
-        setRows([])
-        setTotalCount(0)
-        return
-      }
-
-      const list = (data ?? []) as MatchingHistoryRow[]
-      setRows(list)
-      setTotalCount(typeof count === "number" ? count : list.length)
+      setRows(list.slice(from, from + PAGE_SIZE))
     } catch (e) {
       console.error("Fetch history error:", e)
-      const parsed = parseHistoryFetchError(e)
-      if (parsed.kind === "missing_table") {
-        setMissingTableHint(true)
-        setRows([])
-        setTotalCount(0)
-      } else {
-        setLoadError(parsed.message)
-        setLoadErrorDetail(parsed.technical ?? null)
-        setRows([])
-        setTotalCount(0)
-      }
+      setLoadError(e instanceof Error ? e.message : "加载历史失败")
+      setLoadErrorDetail(null)
+      setRows([])
+      setTotalCount(0)
     } finally {
       setIsLoading(false)
     }
-  }, [page, router])
-
-  const handleCopyDdl = async () => {
-    try {
-      await navigator.clipboard.writeText(MATCHING_HISTORIES_DDL)
-      toast.success("已复制 SQL 到剪贴板")
-    } catch {
-      toast.error("复制失败", { description: "请手动选中下方 SQL 复制" })
-    }
-  }
+  }, [page])
 
   useEffect(() => {
     void fetchPage()
@@ -187,7 +103,7 @@ export default function MatchingHistoryPage() {
             聚合每次 AI 诊断、匹配与润色记录，支持快照复盘
           </p>
         </div>
-        {!isLoading && !loadError && !missingTableHint ? (
+        {!isLoading && !loadError ? (
           <p className="shrink-0 text-sm text-muted-foreground tabular-nums">共 {totalCount} 条</p>
         ) : null}
       </div>
@@ -216,45 +132,6 @@ export default function MatchingHistoryPage() {
           </div>
         ) : rows.length === 0 ? (
           <div className="scrollbar-dark flex min-h-0 flex-1 flex-col gap-6 overflow-auto p-4 md:p-6">
-            {missingTableHint ? (
-              <div
-                className="shrink-0 space-y-4 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 md:p-5"
-                role="region"
-                aria-label="数据库建表说明"
-              >
-                <div className="flex items-start gap-3">
-                  <Database className="mt-0.5 h-5 w-5 shrink-0 text-amber-400" aria-hidden />
-                  <div className="min-w-0 space-y-2 text-left text-sm text-slate-200">
-                    <p className="font-medium text-amber-200">
-                      需要在 Supabase 中创建 matching_histories 表
-                    </p>
-                    <p className="text-slate-400">
-                      当前请求来自浏览器内的 Supabase 客户端（非 Server Component、非 /api/history）。
-                      若表尚未执行迁移，PostgREST 会报错（常见为 PGRST205 / schema cache 或 42P01）。
-                      请在 Supabase Dashboard → SQL Editor 粘贴并运行下方脚本，然后点击「我已建表，重试」。
-                    </p>
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    className="gap-2"
-                    onClick={() => void handleCopyDdl()}
-                  >
-                    <Copy className="h-4 w-4" aria-hidden />
-                    复制 SQL
-                  </Button>
-                  <Button type="button" size="sm" onClick={() => void fetchPage()}>
-                    我已建表，重试
-                  </Button>
-                </div>
-                <pre className="scrollbar-dark max-h-56 overflow-auto rounded-md border border-slate-800 bg-slate-950 p-3 text-left text-xs leading-relaxed text-slate-300">
-                  {MATCHING_HISTORIES_DDL}
-                </pre>
-              </div>
-            ) : null}
 
             <div className="flex flex-1 items-center justify-center py-6">
               <Empty className="max-w-md border border-dashed border-slate-700/80 bg-slate-950/40">

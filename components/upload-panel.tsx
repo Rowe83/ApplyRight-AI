@@ -9,14 +9,12 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Upload, FileText, X, Sparkles, Loader2, Library } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { supabase } from "@/lib/supabase"
+import { api } from "@/lib/api-client"
 import { extractPdfTextFromFile } from "@/lib/extract-pdf-text"
 import { readRefineSuggestions, type RefineSuggestionsPayload } from "@/lib/refine-suggestions-storage"
 import { WorkbenchStepChecklist } from "@/components/workbench-step-checklist"
-import { AnalyzeCreditsHint } from "@/components/analyze-credits-hint"
 import { RecentJdPicker } from "@/components/recent-jd-picker"
 import { JdTemplatePicker } from "@/components/jd-template-picker"
-import { useCredits } from "@/components/credits-context"
 import { normalizeJdText } from "@/lib/normalize-jd-text"
 import {
   ANALYZE_BLOCKER_MESSAGES,
@@ -32,17 +30,12 @@ interface UploadPanelProps {
   hasCompletedFirstAnalysis?: boolean
 }
 
-/** Storage keys must be ASCII-only; Unicode filenames (e.g. 中文) cause Invalid key */
-const buildResumeStoragePath = (userId: string) =>
-  `${userId}/${Date.now()}_${crypto.randomUUID()}.pdf`
-
 export const UploadPanel = ({
   onAnalyze,
   isAnalyzing,
   preloadedResume,
   hasCompletedFirstAnalysis = false,
 }: UploadPanelProps) => {
-  const { credits, isLoading: creditsLoading } = useCredits()
   const searchParams = useSearchParams()
   const [resumeFile, setResumeFile] = useState<File | null>(null)
   const [jobDescription, setJobDescription] = useState("")
@@ -147,13 +140,6 @@ export const UploadPanel = ({
       return
     }
 
-    if (!creditsLoading && credits < 1) {
-      toast.error("积分不足", {
-        description: "请前往「积分与计费」充值后再分析",
-      })
-      return
-    }
-
     if (libraryResumeActive && preloadedResume) {
       onAnalyze({ resumeId: preloadedResume.id, jdText })
       return
@@ -167,60 +153,25 @@ export const UploadPanel = ({
     setIsUploading(true)
 
     try {
-      const {
-        data: { session },
-        error: sessionError,
-      } = await supabase.auth.getSession()
-
-      if (sessionError) {
-        throw sessionError
-      }
-
-      const user = session?.user
-      if (!user) {
-        throw new Error("请先登录后再上传简历")
-      }
-
-      const filePath = buildResumeStoragePath(user.id)
-
-      const { error: uploadError } = await supabase.storage
-        .from("resumes")
-        .upload(filePath, resumeFile, { upsert: false })
-
-      if (uploadError) {
-        throw uploadError
-      }
-
-      const { data: publicUrlData } = supabase.storage.from("resumes").getPublicUrl(filePath)
       const rawText = await extractPdfTextFromFile(resumeFile)
       const cleanedText = rawText.replace(/\\n/g, "\n")
+      const formData = new FormData()
+      formData.append("file", resumeFile)
+      formData.append("raw_text", cleanedText)
 
-      const { data: insertedResume, error: insertError } = await supabase
-        .from("resumes")
-        .insert({
-          user_id: user.id,
-          file_url: publicUrlData.publicUrl,
-          raw_text: cleanedText,
-          original_filename: resumeFile.name.slice(0, 2048),
-        })
-        .select("id")
-        .single<{ id: string }>()
-
-      if (insertError || !insertedResume) {
-        throw insertError
+      const res = await api.uploadResume(formData)
+      const inserted = (await res.json()) as { id?: string; error?: string }
+      if (!res.ok || !inserted.id) {
+        throw new Error(inserted.error ?? "上传失败")
       }
 
       toast.success("简历上传成功", {
         description: "PDF 已解析，正在开始匹配分析…",
       })
 
-      onAnalyze({ resumeId: insertedResume.id, jdText })
+      onAnalyze({ resumeId: inserted.id, jdText })
     } catch (error) {
-      let message =
-        error instanceof Error ? error.message : "上传失败，请稍后重试"
-      if (message.includes("Auth session missing")) {
-        message = "请先登录后再上传简历"
-      }
+      const message = error instanceof Error ? error.message : "上传失败，请稍后重试"
       toast.error("上传失败", { description: message })
     } finally {
       setIsUploading(false)
@@ -231,8 +182,6 @@ export const UploadPanel = ({
     resumeFile,
     libraryResumeActive,
     preloadedResume,
-    credits,
-    creditsLoading,
   ])
 
   const hasResume = Boolean(resumeFile) || libraryResumeActive
@@ -242,8 +191,7 @@ export const UploadPanel = ({
     hasCompletedFirstAnalysis,
   })
   const analyzeBlocker = getAnalyzeBlocker({ hasResume, jdText: jobDescription })
-  const hasCredits = creditsLoading || credits >= 1
-  const canAnalyze = jobDescription.trim().length >= JD_MIN_LENGTH && hasResume && hasCredits
+  const canAnalyze = jobDescription.trim().length >= JD_MIN_LENGTH && hasResume
 
   const refineItemCount = refineHints?.items.length ?? 0
 
@@ -416,7 +364,6 @@ export const UploadPanel = ({
               onPaste={handleJdPaste}
             />
           </div>
-          <AnalyzeCreditsHint />
           {analyzeBlocker && !isAnalyzing && !isUploading ? (
             <p className="text-center text-xs text-muted-foreground" role="status">
               {ANALYZE_BLOCKER_MESSAGES[analyzeBlocker]}

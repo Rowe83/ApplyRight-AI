@@ -16,9 +16,7 @@ import {
 import {
   LayoutDashboard,
   FileText,
-  FolderArchive,
   History,
-  Coins,
   Settings,
   Sparkles,
   GitCompare,
@@ -36,11 +34,6 @@ const navItems = [
     href: "/dashboard/resumes",
   },
   {
-    title: "简历库",
-    icon: FolderArchive,
-    href: "/dashboard/templates",
-  },
-  {
     title: "匹配结果",
     icon: GitCompare,
     href: "/dashboard/match-result",
@@ -51,9 +44,9 @@ const navItems = [
     href: "/dashboard/history",
   },
   {
-    title: "积分使用",
-    icon: Coins,
-    href: "/dashboard/billing",
+    title: "AI 设置",
+    icon: Settings,
+    href: "/dashboard/settings",
   },
 ]
 
@@ -111,18 +104,7 @@ export const AppSidebar = () => {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton asChild tooltip="设置">
-              <a href="#">
-                <Settings className="h-4 w-4" />
-                <span>设置</span>
-              </a>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
-      </SidebarFooter>
+      <SidebarFooter />
     </Sidebar>
   )
 }

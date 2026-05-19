@@ -8,19 +8,18 @@ import { UploadPanel } from "@/components/upload-panel"
 import { AnalysisPanel } from "@/components/analysis-panel"
 import { Button } from "@/components/ui/button"
 import { CheckCircle2, GitCompare, Loader2 } from "lucide-react"
-import { supabase } from "@/lib/supabase"
-import { dispatchCreditsChanged } from "@/lib/credits-events"
+import { api } from "@/lib/api-client"
 import { formatMatchScoreDisplay } from "@/lib/format-score"
 import { apiPayloadToAnalysisResult } from "@/lib/match-analysis"
 import { persistMatchAnalysisResult, readMatchAnalysisResult } from "@/lib/match-result-storage"
 import { clearRefineSuggestions, readRefineSuggestions } from "@/lib/refine-suggestions-storage"
 import { DashboardResultPlaceholder } from "@/components/dashboard-result-placeholder"
-import { CreditsLowBanner } from "@/components/credits-low-banner"
 import {
   markFirstAnalysisComplete,
   readHasCompletedFirstAnalysis,
 } from "@/lib/workbench-onboarding"
 import type { AnalysisResultWithMeta } from "@/components/match-result-actions"
+import type { ResumeListItem } from "@/types/resume"
 
 export type ResumeIdSearchParamKey = "resumeId" | "id"
 
@@ -45,37 +44,22 @@ const DashboardPageBody = ({ resumeIdSearchParam }: DashboardPageBodyProps) => {
     let cancelled = false
 
     const detectFirstTimeUser = async () => {
-      const {
-        data: { user },
-        error,
-      } = await supabase.auth.getUser()
-
-      if (cancelled || error || !user) {
-        return
+      try {
+        const [resumes, histories] = await Promise.all([
+          api.getResumes() as Promise<ResumeListItem[]>,
+          api.getHistories(1) as Promise<unknown[]>,
+        ])
+        if (cancelled) return
+        setIsFirstTimeUser(
+          (Array.isArray(resumes) ? resumes.length : 0) === 0 &&
+            (Array.isArray(histories) ? histories.length : 0) === 0,
+        )
+      } catch {
+        if (!cancelled) setIsFirstTimeUser(false)
       }
-
-      const [resumesQuery, historiesQuery] = await Promise.all([
-        supabase
-          .from("resumes")
-          .select("id", { count: "exact", head: true })
-          .eq("user_id", user.id),
-        supabase
-          .from("matching_histories")
-          .select("id", { count: "exact", head: true })
-          .eq("user_id", user.id),
-      ])
-
-      if (cancelled) {
-        return
-      }
-
-      const resumeCount = resumesQuery.count ?? 0
-      const historyCount = historiesQuery.count ?? 0
-      setIsFirstTimeUser(resumeCount === 0 && historyCount === 0)
     }
 
     void detectFirstTimeUser()
-
     return () => {
       cancelled = true
     }
@@ -97,20 +81,6 @@ const DashboardPageBody = ({ resumeIdSearchParam }: DashboardPageBodyProps) => {
     let cancelled = false
 
     const preloadResume = async () => {
-      const {
-        data: { session },
-        error,
-      } = await supabase.auth.getSession()
-
-      if (cancelled) {
-        return
-      }
-
-      if (error || !session) {
-        setPreloadedResume(null)
-        return
-      }
-
       const resumeIdFromParams =
         searchParams.get(resumeIdSearchParam)?.trim() ||
         (resumeIdSearchParam === "id"
@@ -131,43 +101,19 @@ const DashboardPageBody = ({ resumeIdSearchParam }: DashboardPageBodyProps) => {
       const shouldToastPreload = Boolean(resumeIdFromParams)
 
       try {
-        const { data: resume, error: resumeError } = await supabase
-          .from("resumes")
-          .select("original_filename")
-          .eq("id", resumeId)
-          .eq("user_id", session.user.id)
-          .maybeSingle<{ original_filename: string }>()
-
-        if (cancelled) {
-          return
-        }
-
-        if (resumeError) {
-          console.error("Failed to preload resume:", resumeError)
-          setPreloadedResume(null)
-          return
-        }
-
-        if (resume) {
-          setPreloadedResume({ id: resumeId, name: resume.original_filename })
-          if (shouldToastPreload) {
-            toast.success(`已加载简历: ${resume.original_filename}`, {
-              duration: 3000,
-            })
-          }
-        } else {
-          setPreloadedResume(null)
+        const resume = (await api.getResume(resumeId)) as ResumeListItem
+        if (cancelled) return
+        setPreloadedResume({ id: resumeId, name: resume.original_filename })
+        if (shouldToastPreload) {
+          toast.success(`已加载简历: ${resume.original_filename}`, { duration: 3000 })
         }
       } catch (err) {
         console.error("Failed to preload resume:", err)
-        if (!cancelled) {
-          setPreloadedResume(null)
-        }
+        if (!cancelled) setPreloadedResume(null)
       }
     }
 
     void preloadResume()
-
     return () => {
       cancelled = true
     }
@@ -180,74 +126,15 @@ const DashboardPageBody = ({ resumeIdSearchParam }: DashboardPageBodyProps) => {
     const focusSuggestions = refinePayload?.items?.filter(Boolean).slice(0, 8) ?? []
 
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession()
-
-      let token = session?.access_token
-      if (!token) {
-        const {
-          data: { session: refreshedSession },
-        } = await supabase.auth.refreshSession()
-        token = refreshedSession?.access_token
-      }
-
-      if (!token) {
-        toast.error("请先登录")
-        router.push("/login")
-        return
-      }
-
-      const response = await fetch("/api/optimize", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          resumeId: payload.resumeId,
-          jdText: payload.jdText,
-          ...(focusSuggestions.length > 0 ? { focus_suggestions: focusSuggestions } : {}),
-        }),
-      })
-
-      const data = (await response.json()) as {
-        error?: string
-        code?: string
-        match_score?: number
-        score?: number
-        remaining_credits?: number
-        strengths?: string[]
-        weaknesses?: string[]
-        missing_keywords?: string[]
-        original_content?: string
-        optimized_content?: string
-        revised_summary?: string
-        suggestions?: string[]
-        core_suggestions?: string[]
-        top_3_suggestions?: string[]
-        score_summary?: string
-        gap_items?: { keyword?: string; reason: string }[]
-        changes?: { section: string; type: "rewrite" | "add" | "remove"; summary: string }[]
-        optimized_content_plain?: string
+      const data = (await api.optimize({
+        resumeId: payload.resumeId,
+        jdText: payload.jdText,
+        ...(focusSuggestions.length > 0 ? { focus_suggestions: focusSuggestions } : {}),
+      })) as {
         history_id?: string | null
         resume_id?: string
         resume_title?: string
         target_job?: string
-      }
-
-      if (!response.ok) {
-        const insufficient =
-          response.status === 403 &&
-          (data.code === "INSUFFICIENT_CREDITS" || data.error === "余额不足")
-        if (insufficient) {
-          toast.error("积分不足", {
-            description: "当前额度已用尽，请前往「积分与计费」模拟充值后再试",
-            duration: 6000,
-          })
-          return
-        }
-        throw new Error(data.error || "分析失败，请稍后重试")
       }
 
       const nextResult = apiPayloadToAnalysisResult(data)
@@ -278,12 +165,6 @@ const DashboardPageBody = ({ resumeIdSearchParam }: DashboardPageBodyProps) => {
         icon: <CheckCircle2 className="h-4 w-4 text-emerald-500" />,
         duration: 5000,
       })
-
-      if (typeof data.remaining_credits === "number" && Number.isFinite(data.remaining_credits)) {
-        dispatchCreditsChanged(data.remaining_credits)
-      } else {
-        dispatchCreditsChanged()
-      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "分析失败，请稍后重试"
       toast.error("分析失败", { description: message })
@@ -295,7 +176,6 @@ const DashboardPageBody = ({ resumeIdSearchParam }: DashboardPageBodyProps) => {
   return (
     <div className="grid min-h-[calc(100svh-8rem)] gap-6 lg:grid-cols-3">
       <div className="flex min-h-0 flex-col gap-3 overflow-hidden lg:col-span-1">
-        <CreditsLowBanner />
         <UploadPanel
           onAnalyze={handleAnalyze}
           isAnalyzing={isAnalyzing}
