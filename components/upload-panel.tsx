@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useCallback, useEffect } from "react"
+import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -12,6 +13,11 @@ import { supabase } from "@/lib/supabase"
 import { extractPdfTextFromFile } from "@/lib/extract-pdf-text"
 import { readRefineSuggestions, type RefineSuggestionsPayload } from "@/lib/refine-suggestions-storage"
 import { WorkbenchStepChecklist } from "@/components/workbench-step-checklist"
+import { AnalyzeCreditsHint } from "@/components/analyze-credits-hint"
+import { RecentJdPicker } from "@/components/recent-jd-picker"
+import { JdTemplatePicker } from "@/components/jd-template-picker"
+import { useCredits } from "@/components/credits-context"
+import { normalizeJdText } from "@/lib/normalize-jd-text"
 import {
   ANALYZE_BLOCKER_MESSAGES,
   deriveWorkbenchStepStatus,
@@ -36,6 +42,7 @@ export const UploadPanel = ({
   preloadedResume,
   hasCompletedFirstAnalysis = false,
 }: UploadPanelProps) => {
+  const { credits, isLoading: creditsLoading } = useCredits()
   const searchParams = useSearchParams()
   const [resumeFile, setResumeFile] = useState<File | null>(null)
   const [jobDescription, setJobDescription] = useState("")
@@ -106,10 +113,44 @@ export const UploadPanel = ({
     setPreloadedDismissed(true)
   }, [])
 
+  const handleJdPaste = useCallback(
+    (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      const pasted = e.clipboardData.getData("text/plain")
+      if (!pasted) {
+        return
+      }
+      e.preventDefault()
+      const normalized = normalizeJdText(pasted)
+      const el = e.currentTarget
+      const start = el.selectionStart ?? jobDescription.length
+      const end = el.selectionEnd ?? jobDescription.length
+      const next = `${jobDescription.slice(0, start)}${normalized}${jobDescription.slice(end)}`
+      setJobDescription(next)
+    },
+    [jobDescription],
+  )
+
+  const handleNormalizeJd = useCallback(() => {
+    const normalized = normalizeJdText(jobDescription)
+    if (normalized === jobDescription.trim()) {
+      toast.message("格式已是整洁状态")
+      return
+    }
+    setJobDescription(normalized)
+    toast.success("已整理 JD 格式")
+  }, [jobDescription])
+
   const handleAnalyzeClick = useCallback(async () => {
     const jdText = jobDescription.trim()
     if (jdText.length < JD_MIN_LENGTH) {
       toast.error(`请填写职位描述（至少 ${JD_MIN_LENGTH} 个字符）`)
+      return
+    }
+
+    if (!creditsLoading && credits < 1) {
+      toast.error("积分不足", {
+        description: "请前往「积分与计费」充值后再分析",
+      })
       return
     }
 
@@ -140,26 +181,6 @@ export const UploadPanel = ({
         throw new Error("请先登录后再上传简历")
       }
 
-      const extractedJobTitle =
-        jdText
-          .split("\n")
-          .map((line) => line.trim())
-          .find((line) => line.length > 0) ?? "未命名岗位"
-
-      const { data: insertedJd, error: jdInsertError } = await supabase
-        .from("job_descriptions")
-        .insert({
-          user_id: user.id,
-          job_title: extractedJobTitle,
-          full_text: jdText,
-        })
-        .select("id")
-        .single()
-
-      if (jdInsertError) {
-        throw jdInsertError
-      }
-
       const filePath = buildResumeStoragePath(user.id)
 
       const { error: uploadError } = await supabase.storage
@@ -173,7 +194,6 @@ export const UploadPanel = ({
       const { data: publicUrlData } = supabase.storage.from("resumes").getPublicUrl(filePath)
       const rawText = await extractPdfTextFromFile(resumeFile)
       const cleanedText = rawText.replace(/\\n/g, "\n")
-      console.log("Raw text to be stored:", JSON.stringify(cleanedText))
 
       const { data: insertedResume, error: insertError } = await supabase
         .from("resumes")
@@ -191,7 +211,7 @@ export const UploadPanel = ({
       }
 
       toast.success("简历上传成功", {
-        description: `已完成 PDF 解析并写入 resumes 表，JD ID: ${insertedJd.id}`,
+        description: "PDF 已解析，正在开始匹配分析…",
       })
 
       onAnalyze({ resumeId: insertedResume.id, jdText })
@@ -205,7 +225,15 @@ export const UploadPanel = ({
     } finally {
       setIsUploading(false)
     }
-  }, [jobDescription, onAnalyze, resumeFile, libraryResumeActive, preloadedResume])
+  }, [
+    jobDescription,
+    onAnalyze,
+    resumeFile,
+    libraryResumeActive,
+    preloadedResume,
+    credits,
+    creditsLoading,
+  ])
 
   const hasResume = Boolean(resumeFile) || libraryResumeActive
   const stepStatus = deriveWorkbenchStepStatus({
@@ -214,7 +242,8 @@ export const UploadPanel = ({
     hasCompletedFirstAnalysis,
   })
   const analyzeBlocker = getAnalyzeBlocker({ hasResume, jdText: jobDescription })
-  const canAnalyze = jobDescription.trim().length >= JD_MIN_LENGTH && hasResume
+  const hasCredits = creditsLoading || credits >= 1
+  const canAnalyze = jobDescription.trim().length >= JD_MIN_LENGTH && hasResume && hasCredits
 
   const refineItemCount = refineHints?.items.length ?? 0
 
@@ -337,6 +366,16 @@ export const UploadPanel = ({
               </div>
               <p className="text-sm font-medium">拖放简历文件到此处</p>
               <p className="mt-1 text-xs text-muted-foreground">或点击浏览本地文件</p>
+              <p className="mt-3 text-xs text-muted-foreground">
+                已有简历？
+                <Link
+                  href="/dashboard/resumes"
+                  className="ml-1 font-medium text-primary underline-offset-4 hover:underline"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  从我的简历选择
+                </Link>
+              </p>
             </div>
           )}
         </CardContent>
@@ -348,17 +387,36 @@ export const UploadPanel = ({
           <CardDescription>粘贴您想申请的职位描述（JD，建议不少于 {JD_MIN_LENGTH} 字）</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
-          <Textarea
-            placeholder="粘贴职位描述内容...
+          <JdTemplatePicker currentText={jobDescription} onApply={setJobDescription} />
+          <RecentJdPicker onSelect={(text) => setJobDescription(normalizeJdText(text))} />
+          <div className="space-y-2">
+            <div className="flex items-center justify-end">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs text-muted-foreground"
+                disabled={!jobDescription.trim() || isAnalyzing || isUploading}
+                onClick={handleNormalizeJd}
+                aria-label="整理 JD 文本格式"
+              >
+                整理格式
+              </Button>
+            </div>
+            <Textarea
+              placeholder="粘贴职位描述内容...
 
 例如：
 - 职位名称：高级前端工程师
 - 职责要求：负责产品前端开发...
 - 任职资格：3年以上前端开发经验..."
-            className="min-h-[200px] resize-none bg-muted/30 text-sm"
-            value={jobDescription}
-            onChange={(e) => setJobDescription(e.target.value)}
-          />
+              className="min-h-[200px] resize-none bg-muted/30 text-sm"
+              value={jobDescription}
+              onChange={(e) => setJobDescription(e.target.value)}
+              onPaste={handleJdPaste}
+            />
+          </div>
+          <AnalyzeCreditsHint />
           {analyzeBlocker && !isAnalyzing && !isUploading ? (
             <p className="text-center text-xs text-muted-foreground" role="status">
               {ANALYZE_BLOCKER_MESSAGES[analyzeBlocker]}
