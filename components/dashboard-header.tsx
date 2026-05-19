@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
 import { useCredits } from "@/components/credits-context"
+import { getCreditsStatus } from "@/lib/billing-packages"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -19,6 +20,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Coins, Bell, User, LogOut, CreditCard, Loader2 } from "lucide-react"
+import { cn } from "@/lib/utils"
 
 type ProfileData = {
   username: string | null
@@ -71,6 +73,8 @@ export const DashboardHeader = ({ pageTitle }: DashboardHeaderProps) => {
   }
 
   const avatarFallback = (displayName || "用户").slice(0, 1).toUpperCase()
+  const creditsStatus = creditsLoading ? "ok" : getCreditsStatus(credits)
+
   return (
     <header className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4">
       <div className="flex min-w-0 items-center gap-4">
@@ -85,7 +89,15 @@ export const DashboardHeader = ({ pageTitle }: DashboardHeaderProps) => {
         >
           <Badge
             variant="outline"
-            className="flex cursor-pointer items-center gap-1.5 border-primary/30 bg-primary/10 px-3 py-1 text-primary transition-colors hover:bg-primary/15"
+            className={cn(
+              "flex cursor-pointer items-center gap-1.5 px-3 py-1 transition-colors",
+              creditsStatus === "empty" &&
+                "border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300",
+              creditsStatus === "low" &&
+                "border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-200",
+              creditsStatus === "ok" &&
+                "border-primary/30 bg-primary/10 text-primary hover:bg-primary/15",
+            )}
           >
             <Coins className="h-3.5 w-3.5" />
             <span className="font-medium">

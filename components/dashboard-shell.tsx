@@ -15,6 +15,7 @@ import { apiPayloadToAnalysisResult } from "@/lib/match-analysis"
 import { persistMatchAnalysisResult, readMatchAnalysisResult } from "@/lib/match-result-storage"
 import { clearRefineSuggestions, readRefineSuggestions } from "@/lib/refine-suggestions-storage"
 import { DashboardResultPlaceholder } from "@/components/dashboard-result-placeholder"
+import { CreditsLowBanner } from "@/components/credits-low-banner"
 import {
   markFirstAnalysisComplete,
   readHasCompletedFirstAnalysis,
@@ -293,7 +294,8 @@ const DashboardPageBody = ({ resumeIdSearchParam }: DashboardPageBodyProps) => {
 
   return (
     <div className="grid min-h-[calc(100svh-8rem)] gap-6 lg:grid-cols-3">
-      <div className="flex min-h-0 flex-col overflow-hidden lg:col-span-1">
+      <div className="flex min-h-0 flex-col gap-3 overflow-hidden lg:col-span-1">
+        <CreditsLowBanner />
         <UploadPanel
           onAnalyze={handleAnalyze}
           isAnalyzing={isAnalyzing}

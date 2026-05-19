@@ -2,10 +2,9 @@
 
 import Link from "next/link"
 import { Coins, AlertCircle } from "lucide-react"
+import { OPTIMIZE_CREDIT_COST } from "@/lib/billing-packages"
 import { useCredits } from "@/components/credits-context"
 import { cn } from "@/lib/utils"
-
-const OPTIMIZE_CREDIT_COST = 1
 
 type AnalyzeCreditsHintProps = {
   className?: string

@@ -101,7 +101,10 @@ export async function POST(req: NextRequest) {
       user_id: userId,
       amount: delta,
       action_type: "recharge",
-      description: `模拟套餐充值：${pack.label}（+${delta} 次）`,
+      description:
+        pack.kind === "subscription"
+          ? `模拟月付开通：${pack.label}（+${delta} 次/月额度）`
+          : `模拟套餐充值：${pack.label}（+${delta} 次）`,
     })
 
     if (txError) {

@@ -5,7 +5,14 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
-import { BILLING_PACKAGES, type MockPurchasePackageId } from "@/lib/billing-packages"
+import { BillingPlanComparison } from "@/components/billing-plan-comparison"
+import {
+  OPTIMIZE_CREDIT_COST,
+  PAYGO_PACKAGES,
+  SUBSCRIPTION_PACKAGES,
+  type BillingPackageDef,
+  type MockPurchasePackageId,
+} from "@/lib/billing-packages"
 import { dispatchCreditsChanged, CREDITS_CHANGED_EVENT } from "@/lib/credits-events"
 import { useCredits } from "@/components/credits-context"
 import { formatCompactLocalDateTime } from "@/lib/date-utils"
@@ -44,6 +51,58 @@ import { cn } from "@/lib/utils"
 
 const DISPLAY_CAP = 30
 
+const PackageCard = ({
+  pack,
+  onCheckout,
+}: {
+  pack: BillingPackageDef
+  onCheckout: (id: MockPurchasePackageId) => void
+}) => (
+  <Card
+    className={cn(
+      "relative flex min-w-0 flex-col border-border/80 bg-card/60 backdrop-blur-sm transition-shadow",
+      pack.highlight && "border-primary/40 shadow-[0_0_32px_-8px_rgba(56,189,248,0.35)]",
+    )}
+  >
+    {pack.highlight ? (
+      <Badge className="absolute right-3 top-3 bg-primary/90 text-primary-foreground">推荐</Badge>
+    ) : null}
+    <CardHeader>
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <Badge variant={pack.kind === "subscription" ? "default" : "outline"} className="text-[10px]">
+          {pack.kind === "subscription" ? "月付会员" : "按次付费"}
+        </Badge>
+        {pack.billingPeriodLabel ? (
+          <span className="text-xs text-muted-foreground">{pack.billingPeriodLabel}</span>
+        ) : null}
+      </div>
+      <CardTitle className="text-lg">{pack.title}</CardTitle>
+      <CardDescription>{pack.blurb}</CardDescription>
+    </CardHeader>
+    <CardContent className="mt-auto flex flex-col gap-4">
+      <div>
+        <p className="text-3xl font-bold text-foreground">{pack.priceLabel}</p>
+        <p className="text-sm text-muted-foreground">
+          含 <span className="font-semibold text-primary">{pack.credits}</span>{" "}
+          {pack.kind === "subscription" ? "次/月额度（演示）" : "次额度"}
+        </p>
+        {pack.unitPriceHint ? (
+          <p className="mt-1 text-xs text-muted-foreground">{pack.unitPriceHint}</p>
+        ) : null}
+      </div>
+      <Button
+        type="button"
+        className="w-full gap-2 shadow-lg shadow-primary/20"
+        variant={pack.highlight ? "default" : "secondary"}
+        onClick={() => onCheckout(pack.id)}
+      >
+        <Sparkles className="h-4 w-4" />
+        {pack.kind === "subscription" ? "开通月付" : "立即充值"}
+      </Button>
+    </CardContent>
+  </Card>
+)
+
 const formatActionLabel = (row: CreditTransactionRow) => {
   if (row.description?.trim()) {
     return row.description
@@ -66,8 +125,10 @@ export default function BillingPage() {
   const [selectedPackageId, setSelectedPackageId] = useState<MockPurchasePackageId | null>(null)
   const [isPaying, setIsPaying] = useState(false)
 
+  const allPackages = [...PAYGO_PACKAGES, ...SUBSCRIPTION_PACKAGES]
+
   const selectedPack = selectedPackageId
-    ? BILLING_PACKAGES.find((p) => p.id === selectedPackageId)
+    ? allPackages.find((p) => p.id === selectedPackageId)
     : null
 
   const loadTransactions = useCallback(async () => {
@@ -235,8 +296,8 @@ export default function BillingPage() {
               </div>
               <div className="min-w-0 flex-1 space-y-3">
                 <p className="text-sm text-muted-foreground">
-                  每次「简历智能优化」消耗 1 次额度。以下为相对演示上限（{DISPLAY_CAP}
-                  次）的可视化进度，仅作展示。
+                  每次「简历智能优化」消耗 {OPTIMIZE_CREDIT_COST} 次额度。以下为相对演示上限（
+                  {DISPLAY_CAP} 次）的可视化进度，仅作展示。
                 </p>
                 <div className="space-y-2">
                   <div className="flex justify-between text-xs text-muted-foreground">
@@ -249,49 +310,34 @@ export default function BillingPage() {
         </CardContent>
       </Card>
 
-      <div id="billing-packages">
-            <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-              <Zap className="h-4 w-4 text-primary" />
-              模拟充值套餐
-            </h2>
-            <div className="grid min-w-0 gap-4 md:grid-cols-3">
-              {BILLING_PACKAGES.map((pack) => (
-                <Card
-                  key={pack.id}
-                  className={cn(
-                    "relative flex min-w-0 flex-col border-border/80 bg-card/60 backdrop-blur-sm transition-shadow",
-                    pack.highlight &&
-                      "border-primary/40 shadow-[0_0_32px_-8px_rgba(56,189,248,0.35)]",
-                  )}
-                >
-                  {pack.highlight ? (
-                    <Badge className="absolute right-3 top-3 bg-primary/90 text-primary-foreground">推荐</Badge>
-                  ) : null}
-                  <CardHeader>
-                    <CardTitle className="text-lg">{pack.title}</CardTitle>
-                    <CardDescription>{pack.blurb}</CardDescription>
-                  </CardHeader>
-                  <CardContent className="mt-auto flex flex-col gap-4">
-                    <div>
-                      <p className="text-3xl font-bold text-foreground">{pack.priceLabel}</p>
-                      <p className="text-sm text-muted-foreground">
-                        含 <span className="font-semibold text-primary">{pack.credits}</span> 次额度
-                      </p>
-                    </div>
-                    <Button
-                      type="button"
-                      className="w-full gap-2 shadow-lg shadow-primary/20"
-                      variant={pack.highlight ? "default" : "secondary"}
-                      onClick={() => handleOpenCheckout(pack.id)}
-                    >
-                      <Sparkles className="h-4 w-4" />
-                      立即开通
-                    </Button>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-      </div>
+      <BillingPlanComparison />
+
+      <section id="billing-packages" className="space-y-6">
+        <div>
+          <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            <Zap className="h-4 w-4 text-primary" />
+            按次付费
+          </h2>
+          <div className="grid min-w-0 gap-4 md:grid-cols-2">
+            {PAYGO_PACKAGES.map((pack) => (
+              <PackageCard key={pack.id} pack={pack} onCheckout={handleOpenCheckout} />
+            ))}
+          </div>
+        </div>
+        <div>
+          <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            月付会员
+          </h2>
+          <p className="mb-3 text-xs text-muted-foreground">
+            演示环境：购买即入账当月额度，非真实订阅自动扣款。
+          </p>
+          <div className="grid min-w-0 gap-4 md:grid-cols-2">
+            {SUBSCRIPTION_PACKAGES.map((pack) => (
+              <PackageCard key={pack.id} pack={pack} onCheckout={handleOpenCheckout} />
+            ))}
+          </div>
+        </div>
+      </section>
 
       <div className="min-h-0 flex-1">
             <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
@@ -384,7 +430,8 @@ export default function BillingPage() {
               <div className="text-center text-sm">
                 <p className="font-medium text-foreground">{selectedPack.title}</p>
                 <p className="text-muted-foreground">
-                  {selectedPack.priceLabel} · {selectedPack.credits} 次额度
+                  {selectedPack.priceLabel} · {selectedPack.credits}{" "}
+                  {selectedPack.kind === "subscription" ? "次/月额度（演示）" : "次额度"}
                 </p>
               </div>
             ) : null}
