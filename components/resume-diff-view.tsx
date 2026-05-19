@@ -76,6 +76,41 @@ export const useResumeDiffStats = (
   }, [rawText, optimizedText, usePlainText])
 }
 
+export type DiffSectionNavItem = {
+  title: string
+  changed: boolean
+}
+
+export const useDiffSectionList = (
+  rawText: string,
+  optimizedText: string,
+  options?: {
+    usePlainText?: boolean
+    optimizedPlainText?: string
+    onlyChangedSections?: boolean
+  },
+): DiffSectionNavItem[] => {
+  const usePlain = options?.usePlainText ?? true
+  const onlyChanged = options?.onlyChangedSections ?? false
+
+  return useMemo(() => {
+    const { raw, optimized } = prepareTextsForDiff(
+      rawText,
+      optimizedText,
+      usePlain,
+      options?.optimizedPlainText,
+    )
+    const all = parseResumeSections(raw, optimized)
+    const list = onlyChanged
+      ? all.filter((s) => sectionContentChanged(s.rawContent, s.optimizedContent))
+      : all
+    return list.map((s) => ({
+      title: s.title,
+      changed: sectionContentChanged(s.rawContent, s.optimizedContent),
+    }))
+  }, [rawText, optimizedText, usePlain, options?.optimizedPlainText, onlyChanged])
+}
+
 type SectionDiffViewProps = {
   rawText: string
   optimizedText: string

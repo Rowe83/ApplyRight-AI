@@ -1,10 +1,16 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { ResumeDiffView, useResumeDiffStats } from "@/components/resume-diff-view"
+import {
+  ResumeDiffView,
+  useDiffSectionList,
+  useResumeDiffStats,
+} from "@/components/resume-diff-view"
+import { DiffSectionNav } from "@/components/diff-section-nav"
+import { cn } from "@/lib/utils"
 import { MatchSummaryCompact } from "@/components/match-summary-compact"
 import { MatchChangesSummary } from "@/components/match-changes-summary"
 import { DiffToolbar } from "@/components/diff-toolbar"
@@ -59,12 +65,43 @@ export function AnalysisPanel({
   const [diffTab, setDiffTab] = useState<DiffTab>("section-diff")
   const [syncScroll, setSyncScroll] = useState(true)
   const [onlyChangedSections, setOnlyChangedSections] = useState(true)
+  const [diffFullscreen, setDiffFullscreen] = useState(false)
 
   const diffStats = useResumeDiffStats(
     result?.originalContent ?? "",
     result ? getOptimizedTextForDiff(result) : "",
     true,
   )
+
+  const optimizedForDiffPreview = result ? getOptimizedTextForDiff(result) : ""
+  const sectionNavItems = useDiffSectionList(
+    result?.originalContent ?? "",
+    optimizedForDiffPreview,
+    {
+      usePlainText: true,
+      optimizedPlainText: result?.optimizedContentPlain?.trim() || undefined,
+      onlyChangedSections,
+    },
+  )
+
+  useEffect(() => {
+    if (!diffFullscreen) {
+      return
+    }
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setDiffFullscreen(false)
+      }
+    }
+    window.addEventListener("keydown", handleEscape)
+    return () => window.removeEventListener("keydown", handleEscape)
+  }, [diffFullscreen])
+
+  useEffect(() => {
+    if (diffTab !== "section-diff" && diffTab !== "line-diff") {
+      setDiffFullscreen(false)
+    }
+  }, [diffTab])
 
   const displayBody = useMemo(() => {
     if (!result) {
@@ -151,6 +188,18 @@ export function AnalysisPanel({
   const suggestionItems = result.suggestions.flatMap((s) => s.items)
   const meta = result as AnalysisResultWithMeta
 
+  const diffViewportClass = cn(
+    "overflow-hidden rounded-lg border border-border bg-slate-50 dark:bg-slate-950/30",
+    diffFullscreen
+      ? "fixed inset-0 z-50 flex flex-col gap-3 border-0 bg-background p-3 sm:p-4"
+      : "h-[min(65vh,720px)] min-h-[360px]",
+  )
+
+  const diffBodyClass = cn(
+    "min-h-0 overflow-hidden",
+    diffFullscreen ? "flex min-h-0 flex-1 flex-col" : "h-full",
+  )
+
   return (
     <div className="flex h-full min-h-[min(70vh,800px)] flex-col gap-4 lg:flex-row lg:gap-6">
       <div className="shrink-0 lg:w-[min(100%,280px)] lg:max-w-xs">
@@ -196,6 +245,8 @@ export function AnalysisPanel({
           usePlainText
           onSyncScrollChange={setSyncScroll}
           onOnlyChangedSectionsChange={setOnlyChangedSections}
+          diffFullscreen={diffFullscreen}
+          onDiffFullscreenChange={setDiffFullscreen}
         />
 
         <Tabs
@@ -223,36 +274,38 @@ export function AnalysisPanel({
           </TabsList>
 
           <TabsContent value="section-diff" className="mt-3 min-h-0 flex-1 data-[state=inactive]:hidden">
-            <div
-              className="h-[min(65vh,720px)] min-h-[360px] overflow-hidden rounded-lg border border-border bg-slate-50 dark:bg-slate-950/30"
-              role="region"
-              aria-label="按章节 Plain Diff 对比"
-            >
-              <ResumeDiffView
-                mode="sections"
-                rawText={result.originalContent}
-                optimizedText={optimizedForDiff}
-                optimizedPlainText={optimizedPlainOverride}
-                usePlainText
-                onlyChangedSections={onlyChangedSections}
-              />
+            <div className={diffViewportClass} role="region" aria-label="按章节 Plain Diff 对比">
+              <p className="shrink-0 text-[11px] text-muted-foreground md:hidden">
+                小屏为上下排列；点击章节标签可快速跳转
+              </p>
+              <div className={cn(diffBodyClass, "flex flex-col md:flex-row")}>
+                <DiffSectionNav items={sectionNavItems} />
+                <div className="min-h-0 min-w-0 flex-1">
+                  <ResumeDiffView
+                    mode="sections"
+                    rawText={result.originalContent}
+                    optimizedText={optimizedForDiff}
+                    optimizedPlainText={optimizedPlainOverride}
+                    usePlainText
+                    onlyChangedSections={onlyChangedSections}
+                  />
+                </div>
+              </div>
             </div>
           </TabsContent>
 
           <TabsContent value="line-diff" className="mt-3 min-h-0 flex-1 data-[state=inactive]:hidden">
-            <div
-              className="h-[min(65vh,720px)] min-h-[360px] overflow-hidden rounded-lg border border-border bg-slate-50 dark:bg-slate-950/30"
-              role="region"
-              aria-label="全文 Plain 行级对比"
-            >
-              <ResumeDiffView
-                mode="lines"
-                rawText={result.originalContent}
-                optimizedText={optimizedForDiff}
-                optimizedPlainText={optimizedPlainOverride}
-                usePlainText
-                syncScroll={syncScroll}
-              />
+            <div className={diffViewportClass} role="region" aria-label="全文 Plain 行级对比">
+              <div className={diffBodyClass}>
+                <ResumeDiffView
+                  mode="lines"
+                  rawText={result.originalContent}
+                  optimizedText={optimizedForDiff}
+                  optimizedPlainText={optimizedPlainOverride}
+                  usePlainText
+                  syncScroll={syncScroll}
+                />
+              </div>
             </div>
           </TabsContent>
 
