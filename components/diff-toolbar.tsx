@@ -1,7 +1,5 @@
 "use client"
 
-import { Maximize2, Minimize2 } from "lucide-react"
-import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import type { ResumeSectionDiffStats } from "@/lib/resume-sections"
@@ -15,8 +13,6 @@ type DiffToolbarProps = {
   usePlainText: boolean
   onSyncScrollChange: (value: boolean) => void
   onOnlyChangedSectionsChange: (value: boolean) => void
-  diffFullscreen?: boolean
-  onDiffFullscreenChange?: (value: boolean) => void
   className?: string
 }
 
@@ -28,8 +24,6 @@ export const DiffToolbar = ({
   usePlainText,
   onSyncScrollChange,
   onOnlyChangedSectionsChange,
-  diffFullscreen = false,
-  onDiffFullscreenChange,
   className,
 }: DiffToolbarProps) => {
   return (
@@ -58,28 +52,6 @@ export const DiffToolbar = ({
       </div>
 
       <div className="flex flex-wrap items-center gap-4">
-        {onDiffFullscreenChange ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-7 gap-1 px-2 text-xs"
-            onClick={() => onDiffFullscreenChange(!diffFullscreen)}
-            aria-label={diffFullscreen ? "退出全屏 Diff" : "全屏查看 Diff"}
-          >
-            {diffFullscreen ? (
-              <>
-                <Minimize2 className="h-3.5 w-3.5" aria-hidden />
-                退出全屏
-              </>
-            ) : (
-              <>
-                <Maximize2 className="h-3.5 w-3.5" aria-hidden />
-                全屏
-              </>
-            )}
-          </Button>
-        ) : null}
         {mode === "sections" ? (
           <div className="flex items-center gap-2">
             <Switch

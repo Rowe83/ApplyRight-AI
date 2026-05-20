@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -65,7 +65,6 @@ export function AnalysisPanel({
   const [diffTab, setDiffTab] = useState<DiffTab>("section-diff")
   const [syncScroll, setSyncScroll] = useState(true)
   const [onlyChangedSections, setOnlyChangedSections] = useState(true)
-  const [diffFullscreen, setDiffFullscreen] = useState(false)
 
   const diffStats = useResumeDiffStats(
     result?.originalContent ?? "",
@@ -83,25 +82,6 @@ export function AnalysisPanel({
       onlyChangedSections,
     },
   )
-
-  useEffect(() => {
-    if (!diffFullscreen) {
-      return
-    }
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setDiffFullscreen(false)
-      }
-    }
-    window.addEventListener("keydown", handleEscape)
-    return () => window.removeEventListener("keydown", handleEscape)
-  }, [diffFullscreen])
-
-  useEffect(() => {
-    if (diffTab !== "section-diff" && diffTab !== "line-diff") {
-      setDiffFullscreen(false)
-    }
-  }, [diffTab])
 
   const displayBody = useMemo(() => {
     if (!result) {
@@ -188,17 +168,10 @@ export function AnalysisPanel({
   const suggestionItems = result.suggestions.flatMap((s) => s.items)
   const meta = result as AnalysisResultWithMeta
 
-  const diffViewportClass = cn(
-    "overflow-hidden rounded-lg border border-border bg-slate-50 dark:bg-slate-950/30",
-    diffFullscreen
-      ? "fixed inset-0 z-50 flex flex-col gap-3 border-0 bg-background p-3 sm:p-4"
-      : "h-[min(65vh,720px)] min-h-[360px]",
-  )
+  const diffViewportClass =
+    "h-[min(65vh,720px)] min-h-[360px] overflow-hidden rounded-lg border border-border bg-slate-50 dark:bg-slate-950/30"
 
-  const diffBodyClass = cn(
-    "min-h-0 overflow-hidden",
-    diffFullscreen ? "flex min-h-0 flex-1 flex-col" : "h-full",
-  )
+  const diffBodyClass = "h-full min-h-0 overflow-hidden"
 
   return (
     <div className="flex h-full min-h-[min(70vh,800px)] flex-col gap-4 lg:flex-row lg:gap-6">
@@ -245,8 +218,6 @@ export function AnalysisPanel({
           usePlainText
           onSyncScrollChange={setSyncScroll}
           onOnlyChangedSectionsChange={setOnlyChangedSections}
-          diffFullscreen={diffFullscreen}
-          onDiffFullscreenChange={setDiffFullscreen}
         />
 
         <Tabs
