@@ -12,17 +12,17 @@
 ## 要求
 
 - Node.js 20+
-- pnpm
+- npm
 
 ## 快速开始
 
 ```bash
-git clone https://github.com/your-org/ApplyRight-AI.git
+git clone https://github.com/Rowe83/ApplyRight-AI.git
 cd ApplyRight-AI
 cp .env.example .env.local
 # 编辑 .env.local，填入所选厂商的 API Key
-pnpm install
-pnpm dev
+npm install
+npm run dev
 ```
 
 浏览器打开 [http://localhost:3000](http://localhost:3000)。
@@ -52,9 +52,9 @@ pnpm dev
 ## 开发
 
 ```bash
-pnpm lint
-pnpm build
-pnpm start
+npm run lint
+npm run build
+npm start
 ```
 
 ## License
